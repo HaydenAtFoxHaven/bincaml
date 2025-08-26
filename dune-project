@@ -19,10 +19,11 @@
  (name ocaml_of_basil)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends 
+ (depends
    ocaml
    zarith
    fix
+   ppx_deriving
    (ppx_expect_nobase (>= "0.17.2.2"))
    )
  (tags
