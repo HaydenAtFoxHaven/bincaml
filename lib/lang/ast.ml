@@ -1,3 +1,12 @@
+module HashHelper = struct
+  let combine acc n = (acc * 65599) + n
+  let combine2 acc n1 n2 = combine (combine acc n1) n2
+  let combine3 acc n1 n2 n3 = combine (combine (combine acc n1) n2) n3
+
+  let rec combinel acc n1 =
+    match n1 with [] -> acc | h :: tl -> combinel (combine acc h) tl
+end
+
 module Value = struct
   type integer = Z.t
 
@@ -14,15 +23,159 @@ module Value = struct
     Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ bv_val b) (bv_size b)
 
   let pp_bitvector fmt b = Format.pp_print_string fmt (show_bitvector b)
+
+  type t =
+    | Integer of integer
+    | Bitvector of bitvector
+    | Boolean of bool
+    | Unit
+  [@@deriving show, eq]
+
+  let hash a =
+    let open HashHelper in
+    match a with
+    | Unit -> 1
+    | Integer i -> combine 2 (Z.hash i)
+    | Boolean true -> combine 5 1
+    | Boolean false -> combine 7 2
+    | Bitvector (sz, i) -> combine2 11 (Int.hash sz) (Z.hash i)
 end
 
-module ExprType = struct
+module type TYPE = sig
+  type t
+
+  val show : t -> string
+  val equal : t -> t -> bool
+  val hash : t -> int
+end
+
+module BType = struct
+  type t = Boolean | Integer | Bitvector of int | Unit | Top | Nothing
+  [@@deriving eq]
+
+  (*
+  Nothing < Unit < {boolean, integer, bitvector} < Top
+  *)
+  let compare (a : t) (b : t) =
+    match (a, b) with
+    | Top, Top -> 0
+    | Top, _ -> 1
+    | _, Top -> -1
+    | Nothing, Nothing -> 0
+    | Nothing, _ -> -1
+    | _, Nothing -> 1
+    | Unit, _ -> -1
+    | _, Unit -> 1
+    | Boolean, Integer -> 0
+    | Integer, Boolean -> 0
+    | Boolean, Bitvector _ -> 0
+    | Bitvector _, Boolean -> 0
+    | Boolean, Boolean -> 0
+    | Integer, Bitvector _ -> 0
+    | Bitvector _, Integer -> 0
+    | Bitvector a, Bitvector b -> Int.compare a b
+    | Integer, Integer -> 0
+
+  type lambda = Leaf of t | Lambda of (lambda * lambda)
+
+  let rec curry ?(acc = []) (l : lambda) : lambda list * lambda =
+    match l with
+    | Leaf _ as l -> (List.rev acc, l)
+    | Lambda (l, ts) -> curry ~acc:(l :: acc) ts
+
+  let uncurry (args : lambda list) (v : lambda) =
+    List.fold_left (fun a p -> Lambda (a, p)) v
+
+  let leaf_to_string = function
+    | Boolean -> "bool"
+    | Integer -> "int"
+    | Bitvector i -> "bv" ^ Int.to_string i
+    | Unit -> "()"
+    | Top -> "⊤"
+    | Nothing -> "⊥"
+
+  let rec lambda_to_string = function
+    | Lambda ((Lambda _ as a), Leaf b) ->
+        "(" ^ lambda_to_string a ^ ")" ^ "->" ^ leaf_to_string b
+    | Lambda ((Lambda _ as a), (Lambda _ as b)) ->
+        "(" ^ lambda_to_string a ^ ")" ^ "->" ^ "(" ^ lambda_to_string b ^ ")"
+    | Lambda (Leaf a, (Lambda _ as b)) ->
+        "(" ^ leaf_to_string a ^ ")" ^ "->" ^ lambda_to_string b
+    | Lambda (Leaf a, Leaf b) -> leaf_to_string a ^ "->" ^ leaf_to_string b
+    | Leaf l -> leaf_to_string l
+end
+
+module ExprType
+    (PrimConst : TYPE)
+    (V : TYPE)
+    (PrimUnary : TYPE)
+    (PrimBinary : TYPE)
+    (PrimFun : TYPE) =
+struct
   open Value
 
-  type assocop = [ `EQ | `NEQ | `BOOLAND | `BOOLOR ]
-  [@@deriving show { with_path = false }]
+  (* may need to ppx_import these types?
+  type vartype = V.t
+  type constop = PrimConst.t
+  type unaryop = PrimUnary.t
+  type binaryop = PrimBinary.t
+  type funop = PrimFun.t
+  *)
 
-  type predicatebinop =
+  (* expression ops with an explicit variant, this is used just for hash consing *)
+
+  type 'e expr_node =
+    | RVar of V.t  (** variables *)
+    | Constant of PrimConst.t
+        (** constants; a pure intrinsic function with zero arguments *)
+    | UnaryExpr of PrimUnary.t * 'e
+        (** application of a pure intrinsic function with one arguments *)
+    | BinaryExpr of PrimBinary.t * 'e * 'e
+        (** application of a pure intrinsic function with two arguments *)
+    | ApplyIntrin of PrimFun.t * 'e list
+        (** application of a pure intrinsic function with n arguments *)
+    | ApplyFun of string * 'e list
+        (** application of a pure runtime-defined function with n arguments *)
+    | Binding of V.t list * 'e  (** syntactic binding in a nested scope *)
+  [@@deriving eq, fold, map, iter]
+  (* store, load *)
+
+  let equal eq_var eq_expr = equal_expr_node eq_var eq_expr
+
+  let hash : ('e -> int) -> 'e expr_node -> int =
+   fun hash e1 ->
+    let open HashHelper in
+    match e1 with
+    | RVar r -> combine 1 (V.hash r)
+    | UnaryExpr (op, a) -> combine2 3 (PrimUnary.hash op) (hash a)
+    | BinaryExpr (op, l, r) -> combine3 5 (PrimBinary.hash op) (hash l) (hash r)
+    | Constant c -> combine 7 (PrimConst.hash c)
+    | ApplyIntrin (i, args) ->
+        combine 11 (combinel (PrimFun.hash i) (List.map hash args))
+    | ApplyFun (n, args) ->
+        combine 13 (combinel (String.hash n) (List.map hash args))
+    | Binding (args, body) ->
+        combine 17 (combinel (hash body) (List.map V.hash args))
+end
+
+module Var = struct
+  type t = Int.t
+
+  let equal = Int.equal
+  let hash = Int.hash
+  let show = Int.to_string
+  let compare = Int.compare
+end
+
+module Unary = struct
+  type t = [ `BITNOT | `LOGNOT | `NEG ]
+  [@@deriving show { with_path = false }, eq, enum]
+
+  let hash = to_enum
+end
+
+module BoolBinOp = struct
+  type t =
     [ `EQ
     | `NEQ
     | `BVULT
@@ -34,9 +187,13 @@ module ExprType = struct
     | `BOOLAND
     | `BOOLOR
     | `BOOLIMPLIES ]
-  [@@deriving show { with_path = false }]
+  [@@deriving show { with_path = false }, eq, enum]
 
-  type bitbinop =
+  let hash = to_enum
+end
+
+module BVBinOp = struct
+  type t =
     [ `BVAND
     | `BVOR
     | `BVADD
@@ -55,227 +212,43 @@ module ExprType = struct
     | `BVSREM
     | `BVSMOD
     | `BVASHR ]
-  [@@deriving show { with_path = false }]
+  [@@deriving show { with_path = false }, eq, enum]
 
-  type intbinop = [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD ]
-  [@@deriving show { with_path = false }]
-
-  type unop = [ `BITNOT | `LOGNOT | `NEG ]
-  [@@deriving show { with_path = false }]
-
-  type binop = [ predicatebinop | intbinop | bitbinop ]
-  [@@deriving show { with_path = false }]
-
-  (* expression ops with an explicit variant, this is used just for hash consing *)
-  type additional_tags =
-    [ `IntConst
-    | `BoolConst
-    | `BVConst
-    | `ZeroExtend
-    | `SignExtend
-    | `BVConcat
-    | `BVExtract
-    | `FApply ]
-
-  (* could maybe use ppx_deriving enum for this, unsure if it supports polymorphic variants though*)
-  let hash_op (v : [< unop | binop | additional_tags ]) =
-    match v with
-    | `BVNOR -> 0
-    | `BVSREM -> 1
-    | `BVSDIV -> 2
-    | `BVCOMP -> 4
-    | `BVADD -> 5
-    | `NEQ -> 6
-    | `BVASHR -> 7
-    | `BITNOT -> 10
-    | `BVMUL -> 12
-    | `BVSHL -> 13
-    | `INTDIV -> 14
-    | `BVXNOR -> 15
-    | `EQ -> 16
-    | `INTADD -> 17
-    | `BVNAND -> 18
-    | `NEG -> 19
-    | `BVSLE -> 20
-    | `BVUREM -> 21
-    | `BVXOR -> 22
-    | `BVOR -> 23
-    | `BOOLIMPLIES -> 24
-    | `BOOLOR -> 25
-    | `BVSUB -> 26
-    | `BVUDIV -> 27
-    | `BVLSHR -> 28
-    | `INTMOD -> 29
-    | `BVAND -> 30
-    | `INTMUL -> 31
-    | `BVSMOD -> 32
-    | `INTLT -> 33
-    | `LOGNOT -> 35
-    | `INTLE -> 36
-    | `BVULT -> 37
-    | `BOOLAND -> 38
-    | `BVULE -> 39
-    | `INTSUB -> 40
-    | `BVSLT -> 41
-    | `BoolConst -> 43
-    | `BVExtract -> 44
-    | `SignExtend -> 45
-    | `ZeroExtend -> 46
-    | `FApply -> 47
-    | `IntConst -> 48
-    | `BVConst -> 49
-    | `BVConcat -> 50
-
-  type btype = Boolean | Integer | Bitvector of int
-
-  let show_type = function
-    | Boolean -> "bool"
-    | Integer -> "int"
-    | Bitvector i -> "bv" ^ Int.to_string i
-
-  type ('v, 'e) expr_node =
-    | RVar of 'v * btype
-    | AssocExpr of assocop * 'e list
-    | BinaryExpr of binop * 'e * 'e
-    | UnaryExpr of unop * 'e
-    | BVZeroExtend of int * 'e
-    | BVSignExtend of int * 'e
-    | BVExtract of integer * integer * 'e
-    | BVConcat of 'e * 'e
-    | BVConst of bitvector
-    | IntConst of integer
-    | BoolConst of bool
-    | Old of 'e
-    | FApply of string * 'e list * btype
-  (* store, load *)
-
-  let equal equal e1 e2 : bool =
-    match (e1, e2) with
-    | RVar (i, t), RVar (i2, t2) -> i = i2 && t = t2
-    | BinaryExpr (bop, e1, e2), BinaryExpr (bop2, e12, e22) ->
-        bop = bop2 && equal e1 e12 && equal e2 e22
-    | UnaryExpr (op1, e1), UnaryExpr (op2, e2) -> op1 = op2 && equal e1 e2
-    | BVZeroExtend (sz, e1), BVZeroExtend (sz2, e2) -> sz = sz2 && equal e1 e2
-    | BVSignExtend (sz, e1), BVSignExtend (sz2, e2) -> sz = sz2 && equal e1 e2
-    | BVExtract (hi1, lo1, e1), BVExtract (hi2, lo2, e2) ->
-        hi1 = hi2 && lo1 = lo2 && equal e1 e2
-    | BVConcat (e11, e12), BVConcat (e21, e22) -> equal e11 e21 && equal e12 e22
-    | BVConst bv1, BVConst bv2 -> equal_bitvector bv1 bv2
-    | IntConst i, IntConst i2 -> equal_integer i i2
-    | BoolConst i, BoolConst i2 -> i = i2
-    | _ -> false
-
-  let combine acc n = (acc * 65599) + n
-  let combine2 acc n1 n2 = combine (combine acc n1) n2
-  let combine3 acc n1 n2 n3 = combine (combine (combine acc n1) n2) n3
-
-  let rec combinel acc n1 =
-    match n1 with [] -> acc | h :: tl -> combinel (combine acc h) tl
-
-  let hash hash e1 : int =
-    match e1 with
-    | AssocExpr (bop, es) -> combinel (hash_op bop) (List.map hash es)
-    | BinaryExpr (bop, e1, e2) -> combine2 (hash_op bop) (hash e1) (hash e2)
-    | UnaryExpr (uop, e1) ->
-        combine2 (hash_op `SignExtend) (hash e1) (hash_op uop)
-    | BVZeroExtend (i, e) ->
-        combine2 (hash_op `ZeroExtend) (hash e) (Hashtbl.hash i)
-    | BVSignExtend (i, e) ->
-        combine2 (hash_op `SignExtend) (hash e) (Hashtbl.hash i)
-    | BVExtract (hi, lo, e) ->
-        combine3 (hash_op `BVExtract) (hash e) (Hashtbl.hash hi)
-          (Hashtbl.hash lo)
-    | BVConcat (e1, e2) -> combine2 (hash_op `BVConcat) (hash e1) (hash e2)
-    | RVar (i, t) -> combine (Hashtbl.hash i) (Hashtbl.hash t)
-    | BVConst bv ->
-        combine2 (hash_op `BVConst)
-          (Hashtbl.hash (bv_size bv))
-          (Z.hash @@ bv_val bv)
-    | IntConst i -> combine (hash_op `IntConst) (Hashtbl.hash i)
-    | BoolConst b -> combine (hash_op `BoolConst) (Hashtbl.hash b)
-    | Old b -> hash b
-    | FApply (id, params, rt) ->
-        combine (Hashtbl.hash id)
-          (combinel (Hashtbl.hash rt) (List.map hash params))
-
-  let fold :
-      'a 'b 'acc. ('acc -> 'b -> 'acc) -> 'acc -> ('a, 'b) expr_node -> 'acc =
-   fun f unit e ->
-    match e with
-    | AssocExpr (op, es) -> List.fold_left f unit es
-    | BinaryExpr (op, e1, e2) -> f (f unit e1) e2
-    | UnaryExpr (op, e1) -> f unit e1
-    | BVZeroExtend (i, e) -> f unit e
-    | BVSignExtend (i, e) -> f unit e
-    | BVExtract (hi, lo, e) -> f unit e
-    | BVConcat (e1, e2) -> f (f unit e1) e2
-    | Old b -> f unit b
-    | FApply (id, params, rt) -> List.fold_left f unit params
-    | RVar (i, t) -> unit
-    | BVConst bv -> unit
-    | IntConst i -> unit
-    | BoolConst b -> unit
-
-  let iter : 'a 'b 'acc. ('b -> unit) -> ('a, 'b) expr_node -> unit =
-   fun f e ->
-    match e with
-    | AssocExpr (op, es) -> List.iter f es
-    | BinaryExpr (op, e1, e2) ->
-        f e1;
-        f e2
-    | UnaryExpr (op, e1) -> f e1
-    | BVZeroExtend (i, e) -> f e
-    | BVSignExtend (i, e) -> f e
-    | BVExtract (hi, lo, e) -> f e
-    | BVConcat (e1, e2) ->
-        f e1;
-        f e2
-    | Old b -> f b
-    | FApply (id, params, rt) -> List.iter f params
-    | RVar (i, t) -> ()
-    | BVConst bv -> ()
-    | IntConst i -> ()
-    | BoolConst b -> ()
-
-  let map : 'a 'b 'c. ('b -> 'c) -> ('a, 'b) expr_node -> ('a, 'c) expr_node =
-   fun f e ->
-    match e with
-    | AssocExpr (op, es) -> AssocExpr (op, List.map f es)
-    | BinaryExpr (op, e1, e2) -> BinaryExpr (op, f e1, f e2)
-    | UnaryExpr (op, e1) -> UnaryExpr (op, f e1)
-    | BVZeroExtend (i, e) -> BVZeroExtend (i, f e)
-    | BVSignExtend (i, e) -> BVSignExtend (i, f e)
-    | BVExtract (hi, lo, e) -> BVExtract (hi, lo, f e)
-    | BVConcat (e1, e2) -> BVConcat (f e1, f e2)
-    | Old b -> Old (f b)
-    | FApply (id, params, rt) -> FApply (id, List.map f params, rt)
-    | RVar (i, t) -> RVar (i, t)
-    | BVConst bv -> BVConst bv
-    | IntConst i -> IntConst i
-    | BoolConst b -> BoolConst b
-
-  let immediate_children = function
-    | AssocExpr (op, es) -> es
-    | BinaryExpr (op, e1, e2) -> [ e1; e2 ]
-    | UnaryExpr (op, e1) -> [ e1 ]
-    | BVZeroExtend (i, e) -> [ e ]
-    | BVSignExtend (i, e) -> [ e ]
-    | BVExtract (hi, lo, e) -> [ e ]
-    | BVConcat (e1, e2) -> [ e1; e2 ]
-    | Old b -> [ b ]
-    | FApply (id, params, rt) -> params
-    | RVar (i, t) -> []
-    | BVConst bv -> []
-    | IntConst i -> []
-    | BoolConst b -> []
+  let hash = to_enum
 end
 
-module type TYPE = sig
-  type t
+module IntBinOp = struct
+  type t = [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD ]
+  [@@deriving show { with_path = false }, eq, enum]
 
-  val show : t -> string
-  val compare : t -> t -> int
-  val default : t
+  let hash = to_enum
+end
+
+module Binary = struct
+  type t = [ BVBinOp.t | IntBinOp.t | BoolBinOp.t ]
+  [@@deriving show { with_path = false }, eq]
+
+  let hash a =
+    match a with
+    | #BVBinOp.t as a -> BVBinOp.hash a
+    | #BoolBinOp.t as a -> BoolBinOp.hash a
+    | #IntBinOp.t as a -> IntBinOp.hash a
+end
+
+module Intrin = struct
+  type t =
+    [ `ZeroExtend of int
+    | `SignExtend of int
+    | `BITConcat
+    | `Old
+    | `BitExtract of int * int
+    | `EQ
+    | `NEQ
+    | `BOOLAND
+    | `BOOLOR ]
+  [@@deriving show { with_path = false }, eq]
+
+  let hash a = Hashtbl.hash a
 end
 
 module Recursion (E : sig
@@ -292,47 +265,41 @@ struct
    fun alg -> E.unfix >> E.map (cata alg) >> alg
 end
 
-module Expr (V : TYPE) = struct
-  open ExprType
+module AllExpr = ExprType (Value) (Var) (Unary) (Binary) (Intrin)
+
+module Expr = struct
+  module EX = AllExpr
 
   type expr = expr_node_v Fix.HashCons.cell
-  and expr_node_v = E of (V.t, expr) ExprType.expr_node [@@unboxed]
+  and expr_node_v = E of expr EX.expr_node [@@unboxed]
 
   module ExprHashType = struct
     type t = expr_node_v
 
     let equal (e1 : t) (e2 : t) =
       match (e1, e2) with
-      | E e1, E e2 -> ExprType.equal Fix.HashCons.equal e1 e2
+      | E e1, E e2 -> EX.equal_expr_node Fix.HashCons.equal e1 e2
 
-    let hash = function E e -> ExprType.hash Fix.HashCons.hash e
+    let hash = function E e -> EX.hash Fix.HashCons.hash e
   end
 
   module M = Fix.HashCons.ForHashedTypeWeak (ExprHashType)
 
-  let fix (e : (V.t, expr) ExprType.expr_node) = M.make (E e)
-
-  let unfix (e : expr) : (V.t, expr) ExprType.expr_node =
-    match e.data with E e -> e
+  let fix (e : expr EX.expr_node) = M.make (E e)
+  let unfix (e : expr) : expr EX.expr_node = match e.data with E e -> e
 
   (* smart constructors *)
-  let intconst v = fix (IntConst v)
-  let bvconst ~(width : int) v = fix (BVConst (width, v))
-  let assocexp ~op ls = fix (AssocExpr (op, ls))
+  let const v = fix (Constant v)
+  let intconst v = fix (Constant (Integer v))
+  let boolconst v = fix (Constant (Boolean v))
+  let bvconst v = fix (Constant (Bitvector v))
   let binexp ~op l r = fix (BinaryExpr (op, l, r))
   let unexp ~op arg = fix (UnaryExpr (op, arg))
-  let zero_extend ~n_prefix_bits arg = fix (BVZeroExtend (n_prefix_bits, arg))
-  let sign_extend ~n_prefix_bits arg = fix (BVSignExtend (n_prefix_bits, arg))
-  let old e = fix (Old e)
-  let fapply id ~return_type params = fix (FApply (id, params, return_type))
-  let bvextract ~hi_incl ~lo_excl arg = fix (BVExtract (hi_incl, lo_excl, arg))
-  let bvconcat arg1 arg2 = fix (BVConcat (arg1, arg2))
-  let bvconst bv = fix (BVConst bv)
-  let intconst i = fix (IntConst i)
-  let boolconst b = fix (BoolConst b)
+  let fapply id params = fix (ApplyFun (id, params))
+  let applyintrin id params = fix (ApplyIntrin (id, params))
 
   (* this map definition embeds unfix *)
-  let map f e = ExprType.map f e
+  let map f e = EX.map_expr_node f e
   let ( >> ) = fun f g x -> g (f x)
   let rec cata alg e = (unfix >> map (cata alg) >> alg) e
 
@@ -343,32 +310,25 @@ module Expr (V : TYPE) = struct
     let hash = Fix.HashCons.hash
   end)
 
-  let cata_memo (alg : (V.t, 'a) expr_node -> 'a) =
+  let cata_memo (alg : 'a EX.expr_node -> 'a) =
     let g r t = map r (unfix t) |> alg in
     Memoiser.fix g
 
-  module S = Set.Make (V)
+  module S = Set.Make (Var)
 
   let printer_alg e =
-    match (e : (V.t, 'a) expr_node) with
-    | RVar (id, t) -> V.show id ^ ":" ^ show_type t
-    | AssocExpr (op, args) ->
-        Format.sprintf "%s(%s)" (show_assocop op) (String.concat ", " args)
-    | BinaryExpr (op, l, r) -> Format.sprintf "%s(%s, %s)" (show_binop op) l r
-    | UnaryExpr (op, a) -> Format.sprintf "%s(%s)" (show_unop op) a
-    | BVZeroExtend (n, a) -> Format.sprintf "zero_extend(%d, %s)" n a
-    | BVSignExtend (n, a) -> Format.sprintf "sign_extend(%d, %s)" n a
-    | BVExtract (hi, lo, a) ->
-        Format.sprintf "bvextract(%s, %s, %s)" (Z.to_string hi) (Z.to_string lo)
-          a
-    | BVConcat (l, r) -> Format.sprintf "concat(%s, %s)" l r
-    | BVConst i -> Value.show_bitvector i
-    | IntConst i -> Value.show_integer i
-    | BoolConst true -> "true"
-    | BoolConst false -> "false"
-    | Old e -> Format.sprintf "old(%s)" e
-    | FApply (i, a, r) ->
-        Format.sprintf "%s(%s):%s" i (String.concat "," a) (show_type r)
+    match (e : 'a EX.expr_node) with
+    | RVar id -> Var.show id
+    | BinaryExpr (op, l, r) -> Format.sprintf "%s(%s, %s)" (Binary.show op) l r
+    | UnaryExpr (op, a) -> Format.sprintf "%s(%s)" (Unary.show op) a
+    | Constant i -> Value.show i
+    | ApplyIntrin (intrin, args) ->
+        Format.sprintf "%s(%s)" (Intrin.show intrin) (String.concat ", " args)
+    | ApplyFun (n, args) -> Format.sprintf "%s(%s)" n (String.concat ", " args)
+    | Binding (vars, body) ->
+        Format.sprintf "((%s) -> %s)"
+          (String.concat ", " (List.map Var.show vars))
+          body
 
   let to_string =
     let alg e = printer_alg e in
@@ -376,16 +336,13 @@ module Expr (V : TYPE) = struct
 
   let free_vars e =
     let alg = function
-      | RVar (id, t) -> S.singleton id
-      | o -> ExprType.fold S.union S.empty o
+      | EX.RVar id -> S.singleton id
+      | o -> EX.fold_expr_node S.union S.empty o
     in
     cata alg e
 
   let substitute e =
-    let alg = function
-      | RVar (i, t) -> fix (RVar (V.default, t))
-      | t -> fix t
-    in
+    let alg = function EX.RVar i -> fix (RVar 0) | t -> fix t in
     cata alg e
 
   let%expect_test _ =
@@ -433,21 +390,13 @@ module Expr (V : TYPE) = struct
     let p = cata_memo alg in
     ignore (p @@ exp ());
     [%expect
-      "
-      5
-      50
-      `INTADD(50, 5)
-      `INTADD(50, `INTADD(50, 5))
-      `INTADD(50, `INTADD(50, `INTADD(50, 5)))
-      `INTADD(50, `INTADD(50, `INTADD(50, `INTADD(50, 5))))"]
+      "\n\
+      \      5\n\
+      \      50\n\
+      \      `INTADD(50, 5)\n\
+      \      `INTADD(50, `INTADD(50, 5))\n\
+      \      `INTADD(50, `INTADD(50, `INTADD(50, 5)))\n\
+      \      `INTADD(50, `INTADD(50, `INTADD(50, `INTADD(50, 5))))"]
 end
 
 let () = Printexc.record_backtrace true
-
-module E = Expr (struct
-  type t = string
-
-  let show x = x
-  let compare = String.compare
-  let default = "none"
-end)
