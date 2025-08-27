@@ -42,14 +42,16 @@ end
 module PrimQFBV = struct
   (* representation of bitvector positive Z.t and an explicit width*)
 
-  type bv = { w : int; v : Z.t }
+  type t = { w : int; v : Z.t }
 
+  let show (b : t) = Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ b.v) b.w
+  let hash b = HashHelper.combine (Int.hash b.w) (Z.hash b.v)
   let ones ~(size : int) = z_extract Z.minus_one 0 size
   let zero ~(size : int) = { w = size; v = Z.zero }
   let empty = zero ~size:0
   let is_zero b = Z.equal Z.zero b.v
-  let width (x : bv) = match x with { w; v } -> w
-  let value (b : bv) : Z.t = match b with { w; v } -> v
+  let width (x : t) = match x with { w; v } -> w
+  let value (b : t) : Z.t = match b with { w; v } -> v
   let to_signed_bigint b = z_signed_extract b.v 0 b.w
   let to_unsigned_bigint b = z_extract b.v 0 b.w
   let is_negative b = Z.lt (to_signed_bigint b) Z.zero
@@ -58,7 +60,7 @@ module PrimQFBV = struct
   let compare a b =
     Int.compare a.w b.w |> function 0 -> Z.compare a.v b.v | o -> o
 
-  let of_bigint ~(width : int) (v : Z.t) : bv =
+  let of_bigint ~(width : int) (v : Z.t) : t =
     assert (width >= 0);
     let v = z_extract v 0 width in
     { w = width; v }

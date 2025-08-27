@@ -7,12 +7,23 @@ module HashHelper = struct
     match n1 with [] -> acc | h :: tl -> combinel (combine acc h) tl
 end
 
-module type TYPE = sig
+module type PRINTABLE = sig
   type t
 
   val show : t -> string
+end
+
+module type TYPE = sig
+  include PRINTABLE
+
   val equal : t -> t -> bool
   val hash : t -> int
+end
+
+module type ORD_TYPE = sig
+  include TYPE
+
+  val compare : t -> t -> int
 end
 
 let identity x = x

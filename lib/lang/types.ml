@@ -2,6 +2,8 @@ module BType = struct
   type t = Boolean | Integer | Bitvector of int | Unit | Top | Nothing
   [@@deriving eq]
 
+  type func_type = { args : t list; return : t }
+
   (*
   Nothing < Unit < {boolean, integer, bitvector} < Top
   *)

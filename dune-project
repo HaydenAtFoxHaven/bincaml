@@ -24,6 +24,7 @@
    zarith
    fix
    ppx_deriving
+   ocamlgraph
    (ppx_expect_nobase (>= "0.17.2.2"))
    )
  (tags

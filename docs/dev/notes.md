@@ -119,3 +119,7 @@ The upshot of this is:
 
 > Is this a separate AST or some superset of the executble + specification AST?
 
+
+# Other Constraints
+
+- verification ease, e.g. with Why3 camelier
