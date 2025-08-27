@@ -1,53 +1,5 @@
-module HashHelper = struct
-  let combine acc n = (acc * 65599) + n
-  let combine2 acc n1 n2 = combine (combine acc n1) n2
-  let combine3 acc n1 n2 n3 = combine (combine (combine acc n1) n2) n3
-
-  let rec combinel acc n1 =
-    match n1 with [] -> acc | h :: tl -> combinel (combine acc h) tl
-end
-
-module Value = struct
-  type integer = Z.t
-
-  let pp_integer = Z.pp_print
-  let show_integer i = Z.to_string i
-  let equal_integer i j = Z.equal i j
-
-  type bitvector = int * integer [@@deriving eq]
-
-  let bv_size b = fst b
-  let bv_val b = snd b
-
-  let show_bitvector (b : bitvector) =
-    Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ bv_val b) (bv_size b)
-
-  let pp_bitvector fmt b = Format.pp_print_string fmt (show_bitvector b)
-
-  type const =
-    | Integer of integer
-    | Bitvector of bitvector
-    | Boolean of bool
-    | Unit
-  [@@deriving show, eq]
-
-  let hash_const a =
-    let open HashHelper in
-    match a with
-    | Unit -> 1
-    | Integer i -> combine 2 (Z.hash i)
-    | Boolean true -> combine 5 1
-    | Boolean false -> combine 7 2
-    | Bitvector (sz, i) -> combine2 11 (Int.hash sz) (Z.hash i)
-end
-
-module type TYPE = sig
-  type t
-
-  val show : t -> string
-  val equal : t -> t -> bool
-  val hash : t -> int
-end
+open Common
+open Value
 
 module type CONST = sig
   type const
