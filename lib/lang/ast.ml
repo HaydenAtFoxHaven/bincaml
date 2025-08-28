@@ -1,38 +1,6 @@
 open Common
 open Value
 
-module type CONST = sig
-  type const
-
-  val show_const : const -> string
-  val equal_const : const -> const -> bool
-  val hash_const : const -> int
-end
-
-module type UNARY = sig
-  type unary
-
-  val show_unary : unary -> string
-  val equal_unary : unary -> unary -> bool
-  val hash_unary : unary -> int
-end
-
-module type BINARY = sig
-  type 'a binary = [> `A ] as 'a
-
-  val show_binary : 'a binary -> string
-  val equal_binary : 'a binary -> 'a binary -> bool
-  val hash_binary : 'a binary -> int
-end
-
-module type INTRIN = sig
-  type intrin
-
-  val show_intrin : intrin -> string
-  val equal_intrin : intrin -> intrin -> bool
-  val hash_intrin : intrin -> int
-end
-
 module AbstractExpr = struct
   type ('const, 'var, 'unary, 'binary, 'intrin, 'e) t =
     | RVar of 'var  (** variables *)
@@ -76,6 +44,25 @@ module AbstractExpr = struct
         combine 13 (combinel (String.hash n) (List.map hash args))
     | Binding (args, body) ->
         combine 17 (combinel (hash body) (List.map hash_var args))
+
+  module Final (F : sig
+    type e
+    type f
+
+    val fix : ('a, 'b, 'c, 'd, 'e, e) t -> f
+  end) =
+  struct
+    (* smart constrs*)
+
+    let bvconst ~(width : int) v =
+      F.fix (Constant (`Bitvector (PrimQFBV.of_int ~width v)))
+
+    let assocexp ~op ls = F.fix (ApplyIntrin (op, ls))
+    let binexp ~op l r = F.fix (BinaryExpr (op, l, r))
+    let unexp ~op arg = F.fix (UnaryExpr (op, arg))
+    let boolconst b = F.fix (Constant (`Boolean b))
+    let variable v = F.fix (RVar v)
+  end
 end
 
 module Var = struct
@@ -94,77 +81,92 @@ module Unary = struct
   let hash_unary = unary_to_enum
 end
 
-type boolop_binary =
-  [ `EQ
-  | `NEQ
-  | `BVULT
-  | `BVULE
-  | `BVSLT
-  | `BVSLE
-  | `INTLT
-  | `INTLE
-  | `BOOLAND
-  | `BOOLOR
-  | `BOOLIMPLIES ]
-[@@deriving show { with_path = false }, eq]
+module LogicalOps = struct
+  type const = [ `Bool of bool ] [@@deriving show { with_path = false }, eq]
+  type unary = [ `LNOT ] [@@deriving show { with_path = false }, eq]
+  type binary = [ `EQ | `NEQ ] [@@deriving show { with_path = false }, eq]
+  type assoc = [ `BitAND | `BitOR ]
+  type intrin = [ `BVConcat ]
 
-let hash_boolop = Hashtbl.hash
+  let show = function
+    | #const as c -> show_const c
+    | #unary as u -> show_unary u
+    | #binary as b -> show_binary b
 
-type bvop_binary =
-  [ `BVAND
-  | `BVOR
-  | `BVADD
-  | `BVMUL
-  | `BVUDIV
-  | `BVUREM
-  | `BVSHL
-  | `BVLSHR
-  | `BVNAND
-  | `BVNOR
-  | `BVXOR
-  | `BVXNOR
-  | `BVCOMP
-  | `BVSUB
-  | `BVSDIV
-  | `BVSREM
-  | `BVSMOD
-  | `BVASHR ]
-[@@deriving show { with_path = false }, eq, enum]
+  let hash_boolop = Hashtbl.hash
+end
 
-let hash_binary_bv = bvop_binary_to_enum
+module BVOps = struct
+  type const = [ `Bitvector of PrimQFBV.t | LogicalOps.const ]
+  [@@deriving show { with_path = false }, eq]
 
-type intop_binary = [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD ]
-[@@deriving show { with_path = false }, eq, enum]
+  type unary = [ LogicalOps.unary | `BITNOT | `BVNEG ]
+  [@@deriving show { with_path = false }, eq]
 
-let hash_binary_intop = intop_binary_to_enum
+  type binary =
+    [ LogicalOps.binary
+    | `BVAND
+    | `BVOR
+    | `BVADD
+    | `BVMUL
+    | `BVUDIV
+    | `BVUREM
+    | `BVSHL
+    | `BVLSHR
+    | `BVNAND
+    | `BVNOR
+    | `BVXOR
+    | `BVXNOR
+    | `BVCOMP
+    | `BVSUB
+    | `BVSDIV
+    | `BVSREM
+    | `BVSMOD
+    | `BVASHR
+    | `BVULT
+    | `BVULE
+    | `BVSLT
+    | `BVSLE ]
+  [@@deriving show { with_path = false }, eq]
 
-let show_binop = function
-  | #boolop_binary as b -> show_boolop_binary b
-  | #bvop_binary as b -> show_bvop_binary b
-  | #intop_binary as b -> show_intop_binary b
-
-type any_binary = [ bvop_binary | intop_binary | boolop_binary ]
-
-let hash_any_binary a =
-  match a with
-  | #bvop_binary as a -> hash_binary_bv a
-  | #boolop_binary as a -> hash_boolop a
-  | #intop_binary as a -> hash_binary_intop a
-
-module Intrin = struct
   type intrin =
-    [ `ZeroExtend of int
-    | `SignExtend of int
-    | `BITConcat
-    | `Old
-    | `BitExtract of int * int
-    | `EQ
-    | `NEQ
-    | `BOOLAND
-    | `BOOLOR ]
+    [ `ZeroExtend of int | `SignExtend of int | `Extract of int * int ]
+  [@@deriving show { with_path = false }, eq]
+
+  let show = function
+    | #const as c -> show_const c
+    | #unary as u -> show_unary u
+    | #binary as b -> show_binary b
+end
+
+module IntOps = struct
+  type const = [ `Integer of PrimInt.t ]
+  [@@deriving show { with_path = false }, eq]
+
+  type unary = [ `INTNEG ] [@@deriving show { with_path = false }, eq]
+
+  type binary = [ `INTADD | `INTMUL | `INTSUB | `INTDIV | `INTMOD ]
+  [@@deriving show { with_path = false }, eq]
+
+  let show = function
+    | #const as c -> show_const c
+    | #unary as u -> show_unary u
+    | #binary as b -> show_binary b
+end
+
+module Spec = struct
+  type unary = [ `Forall | `Old | `Exists ]
   [@@deriving show { with_path = false }, eq]
 
   let hash_intrin a = Hashtbl.hash a
+end
+
+module AllLogics = struct
+  type const = [ IntOps.const | BVOps.const ]
+  type unary = [ IntOps.unary | BVOps.unary ]
+  type binary = [ IntOps.binary | BVOps.binary ]
+  type intrin = BVOps.intrin
+  type ('var, 'e) t = (const, 'var, unary, binary, intrin, 'e) AbstractExpr.t
 end
 
 module Recursion (E : sig
@@ -197,7 +199,7 @@ module Expr = struct
 
   (* smart constructors *)
   let const v = fix (Constant v)
-  let intconst v = fix (Constant (Value.Integer v))
+  let intconst v = fix (Constant (BValue.Integer v))
   let binexp ~op l r = fix (BinaryExpr (op, l, r))
   let unexp ~op arg = fix (UnaryExpr (op, arg))
   let fapply id params = fix (ApplyFun (id, params))
@@ -232,7 +234,7 @@ let printer_alg e =
   | RVar id -> Var.show id
   | BinaryExpr (op, l, r) -> Format.sprintf "%s(%s, %s)" (show_binop op) l r
   | UnaryExpr (op, a) -> Format.sprintf "%s(%s)" (Unary.show_unary op) a
-  | Constant i -> Value.show_const i
+  | Constant i -> BValue.show i
   | ApplyIntrin (intrin, args) ->
       Format.sprintf "%s(%s)"
         (Intrin.show_intrin intrin)
@@ -258,9 +260,9 @@ let%expect_test _ =
     let alg e = printer_alg e in
     cata alg
   in
-  let e = fix @@ Constant (Value.Integer (Z.of_int 50)) in
+  let e = fix @@ Constant (BValue.Integer (Z.of_int 50)) in
   print_string @@ to_string @@ binexp ~op:`INTADD e e;
-  [%expect {|`INTADD((Value.Value.Integer 50), (Value.Value.Integer 50)) |}]
+  [%expect {|`INTADD(50, 50) |}]
 
 let exp_bool () =
   let open Expr in
@@ -289,15 +291,15 @@ let%expect_test _ =
   ignore (p @@ exp_all ());
   [%expect
     {|
-  (Value.Value.Integer 5)
-  (Value.Value.Integer 50)
-  `INTADD((Value.Value.Integer 50), (Value.Value.Integer 5))
-  (Value.Value.Integer 50)
-  `INTADD((Value.Value.Integer 50), `INTADD((Value.Value.Integer 50), (Value.Value.Integer 5)))
-  (Value.Value.Integer 50)
-  `INTADD((Value.Value.Integer 50), `INTADD((Value.Value.Integer 50), `INTADD((Value.Value.Integer 50), (Value.Value.Integer 5))))
-  (Value.Value.Integer 50)
-  `INTADD((Value.Value.Integer 50), `INTADD((Value.Value.Integer 50), `INTADD((Value.Value.Integer 50), `INTADD((Value.Value.Integer 50), (Value.Value.Integer 5)))))|}]
+  5
+  50
+  `INTADD(50, 5)
+  50
+  `INTADD(50, `INTADD(50, 5))
+  50
+  `INTADD(50, `INTADD(50, `INTADD(50, 5)))
+  50
+  `INTADD(50, `INTADD(50, `INTADD(50, `INTADD(50, 5))))|}]
 
 let%expect_test _ =
   let alg = log_alg in
@@ -306,15 +308,15 @@ let%expect_test _ =
   ignore (p @@ exp_bool ());
   [%expect
     {| 
-      (Value.Value.Integer 5)
-      (Value.Value.Integer 50)
-      `BOOLAND((Value.Value.Integer 50), (Value.Value.Integer 5))
-      (Value.Value.Integer 50)
-      `BOOLAND((Value.Value.Integer 50), `BOOLAND((Value.Value.Integer 50), (Value.Value.Integer 5)))
-      (Value.Value.Integer 50)
-      `BOOLAND((Value.Value.Integer 50), `BOOLAND((Value.Value.Integer 50), `BOOLAND((Value.Value.Integer 50), (Value.Value.Integer 5))))
-      (Value.Value.Integer 50)
-      `BOOLAND((Value.Value.Integer 50), `BOOLAND((Value.Value.Integer 50), `BOOLAND((Value.Value.Integer 50), `BOOLAND((Value.Value.Integer 50), (Value.Value.Integer 5)))))
+      5
+      50
+      `BOOLAND(50, 5)
+      50
+      `BOOLAND(50, `BOOLAND(50, 5))
+      50
+      `BOOLAND(50, `BOOLAND(50, `BOOLAND(50, 5)))
+      50
+      `BOOLAND(50, `BOOLAND(50, `BOOLAND(50, `BOOLAND(50, 5))))
     |}]
 
 let () = Printexc.record_backtrace true

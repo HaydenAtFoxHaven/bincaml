@@ -5,38 +5,13 @@ let checked_extract f v off len = if len > 0 then f v off len else Z.zero
 let z_extract = checked_extract Z.extract
 let z_signed_extract = checked_extract Z.signed_extract
 
-module Value = struct
-  type integer = Z.t
+module PrimInt = struct
+  type t = Z.t
 
-  let pp_integer = Z.pp_print
-  let show_integer i = Z.to_string i
-  let equal_integer i j = Z.equal i j
-
-  type bitvector = int * integer [@@deriving eq]
-
-  let bv_size b = fst b
-  let bv_val b = snd b
-
-  let show_bitvector (b : bitvector) =
-    Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ bv_val b) (bv_size b)
-
-  let pp_bitvector fmt b = Format.pp_print_string fmt (show_bitvector b)
-
-  type const =
-    | Integer of integer
-    | Bitvector of bitvector
-    | Boolean of bool
-    | Unit
-  [@@deriving show, eq]
-
-  let hash_const a =
-    let open HashHelper in
-    match a with
-    | Unit -> 1
-    | Integer i -> combine 2 (Z.hash i)
-    | Boolean true -> combine 5 1
-    | Boolean false -> combine 7 2
-    | Bitvector (sz, i) -> combine2 11 (Int.hash sz) (Z.hash i)
+  let pp = Z.pp_print
+  let show i = Z.to_string i
+  let equal i j = Z.equal i j
+  let hash i = Z.hash i
 end
 
 module PrimQFBV = struct
@@ -45,6 +20,7 @@ module PrimQFBV = struct
   type t = { w : int; v : Z.t }
 
   let show (b : t) = Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ b.v) b.w
+  let pp fmt b = Format.pp_print_string fmt (show b)
   let hash b = HashHelper.combine (Int.hash b.w) (Z.hash b.v)
   let ones ~(size : int) = z_extract Z.minus_one 0 size
   let zero ~(size : int) = { w = size; v = Z.zero }
@@ -157,4 +133,28 @@ module PrimQFBV = struct
 
   let repeat_bits ~(copies : int) a =
     List.init copies (fun _ -> a) |> List.fold_left concat empty
+end
+
+module BValue = struct
+  type t =
+    | Integer of PrimInt.t
+    | Bitvector of PrimQFBV.t
+    | Boolean of bool
+    | Unit
+  [@@deriving show, eq]
+
+  let show = function
+    | Integer i -> PrimInt.show i
+    | Bitvector i -> PrimQFBV.show i
+    | Boolean i -> Bool.to_string i
+    | Unit -> "()"
+
+  let hash a =
+    let open HashHelper in
+    match a with
+    | Integer i -> combine 2 (PrimInt.hash i)
+    | Bitvector b -> combine 3 (PrimQFBV.hash b)
+    | Boolean true -> combine 5 1
+    | Boolean false -> combine 7 2
+    | Unit as u -> Hashtbl.hash u
 end

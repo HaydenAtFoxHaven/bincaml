@@ -68,10 +68,8 @@ module ExprType = struct
     | BVZeroExtend of int * 'e
     | BVSignExtend of int * 'e
     | BVExtract of { hi : int; lo : int; arg : 'e }
+    | Const of BValue.t
     | BVConcat of 'e * 'e
-    | BVConst of PrimQFBV.t
-    | IntConst of Z.t
-    | BoolConst of bool
     | Old of 'e
     | Binding of { bound : 'v list; body : 'e }
     | FApplyIntrin of {
@@ -104,9 +102,7 @@ module ExprType = struct
         combine3 (hash_op `BVExtract) (hash arg) (Hashtbl.hash hi)
           (Hashtbl.hash lo)
     | BVConcat (e1, e2) -> combine2 (hash_op `BVConcat) (hash e1) (hash e2)
-    | BVConst bv -> PrimQFBV.hash bv
-    | IntConst i -> combine (hash_op `IntConst) (Hashtbl.hash i)
-    | BoolConst b -> combine (hash_op `BoolConst) (Hashtbl.hash b)
+    | Const v -> BValue.hash v
     | Old b -> hash b
     | FApply { name; args } -> combinel (Hashtbl.hash name) (List.map hash args)
     | FApplyIntrin { name; args; ty_return } ->
@@ -122,8 +118,11 @@ module ExprType = struct
   end) =
   struct
     (* smart constrs*)
-    let intconst v = F.fix (IntConst v)
-    let bvconst ~(width : int) v = F.fix (BVConst (PrimQFBV.of_int ~width v))
+    let intconst v = F.fix (Const (Integer v))
+
+    let bvconst ~(width : int) v =
+      F.fix (Const (Bitvector (PrimQFBV.of_int ~width v)))
+
     let assocexp ~op ls = F.fix (AssocExpr (op, ls))
     let binexp ~op l r = F.fix (BinaryExpr (op, l, r))
     let unexp ~op arg = F.fix (UnaryExpr (op, arg))
@@ -141,9 +140,7 @@ module ExprType = struct
       F.fix (BVExtract { hi = hi_incl; lo = lo_excl; arg })
 
     let bvconcat arg1 arg2 = F.fix (BVConcat (arg1, arg2))
-    let bvconst bv = F.fix (BVConst bv)
-    let intconst i = F.fix (IntConst i)
-    let boolconst b = F.fix (BoolConst b)
+    let boolconst b = F.fix (Const (Boolean b))
     let variable v = F.fix (RVar v)
   end
 end
@@ -211,10 +208,7 @@ module Expr (V : ORD_TYPE) = struct
     | BVZeroExtend (n, a) -> Format.sprintf "zero_extend(%d, %s)" n a
     | BVSignExtend (n, a) -> Format.sprintf "sign_extend(%d, %s)" n a
     | BVConcat (l, r) -> Format.sprintf "concat(%s, %s)" l r
-    | BVConst i -> PrimQFBV.show i
-    | IntConst i -> Value.show_integer i
-    | BoolConst true -> "true"
-    | BoolConst false -> "false"
+    | Const i -> BValue.show i
     | Old e -> Format.sprintf "old(%s)" e
     | FApply { name; args } ->
         Format.sprintf "%s(%s)" name (String.concat "," args)
