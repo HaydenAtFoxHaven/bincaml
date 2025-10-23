@@ -1,4 +1,5 @@
 open Common
+open Containers
 
 (* workaround: ZArith library doesn't like zero-length extracts *)
 let checked_extract f v off len = if len > 0 then f v off len else Z.zero
@@ -146,7 +147,7 @@ module BValue = struct
   let show = function
     | Integer i -> PrimInt.show i
     | Bitvector i -> PrimQFBV.show i
-    | Boolean i -> Bool.to_string i
+    | Boolean i -> Format.to_string Bool.pp i
     | Unit -> "()"
 
   let hash a =

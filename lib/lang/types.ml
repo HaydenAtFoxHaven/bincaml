@@ -1,5 +1,14 @@
+open Containers
+
 module BType = struct
-  type t = Boolean | Integer | Bitvector of int | Unit | Top | Nothing
+  type t =
+    | Boolean
+    | Integer
+    | Bitvector of int
+    | Unit
+    | Top
+    | Nothing
+    | Map of t * t
   [@@deriving eq]
 
   type func_type = { args : t list; return : t }
@@ -7,7 +16,7 @@ module BType = struct
   (*
   Nothing < Unit < {boolean, integer, bitvector} < Top
   *)
-  let compare (a : t) (b : t) =
+  let rec compare (a : t) (b : t) =
     match (a, b) with
     | Top, Top -> 0
     | Top, _ -> 1
@@ -26,6 +35,10 @@ module BType = struct
     | Bitvector _, Integer -> 0
     | Bitvector a, Bitvector b -> Int.compare a b
     | Integer, Integer -> 0
+    | Map (k, v), Map (k2, v2) -> (
+        compare k k2 |> function 0 -> compare v v2 | o -> o)
+    | Map (k, v), _ -> 0
+    | _, Map (k, v) -> 0
 
   type lambda = Leaf of t | Lambda of (lambda * lambda)
 

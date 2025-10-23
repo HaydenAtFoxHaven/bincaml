@@ -23,6 +23,9 @@
    ocaml
    zarith
    fix
+   containers
+   containers-data
+   basil_ast
    ppx_deriving
    ocamlgraph
    (ppx_expect_nobase (>= "0.17.2.2"))

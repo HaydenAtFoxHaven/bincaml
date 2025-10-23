@@ -1,4 +1,5 @@
 open Common
+open Containers
 open Value
 
 module AbstractExpr = struct
@@ -45,29 +46,23 @@ module AbstractExpr = struct
     | Binding (args, body) ->
         combine 17 (combinel (hash body) (List.map hash_var args))
 
+  type ('const, 'var, 'unary, 'binary, 'intrin, 'e) abs =
+    ('const, 'var, 'unary, 'binary, 'intrin, 'e) t
+
   module Final (F : sig
-    type 'v f
+    type 'v t
     type const
     type unary
     type binary
     type intrin
 
-    val fix : (const, 'v, unary, binary, intrin, 'v f) t -> 'v f
-    val unfix : 'v f -> (const, 'v, unary, binary, intrin, 'v f) t
+    val fix : (const, 'v, unary, binary, intrin, 'v t) abs -> 'v t
+    val unfix : 'v t -> (const, 'v, unary, binary, intrin, 'v t) abs
   end) =
   struct
     let ( >> ) = fun f g x -> g (f x)
     let rec cata alg e = (F.unfix >> map (cata alg) >> alg) e
   end
-end
-
-module Var = struct
-  type t = Int.t
-
-  let equal = Int.equal
-  let hash = Int.hash
-  let show = Int.to_string
-  let compare = Int.compare
 end
 
 module Unary = struct
@@ -243,9 +238,6 @@ module Expr = struct
   let map f e = EX.map f e
   let ( >> ) = fun f g x -> g (f x)
   let rec cata alg e = (unfix >> map (cata alg) >> alg) e
-
-  module S = Set.Make (Var)
-
   let idf a b = a
 end
 
@@ -256,10 +248,10 @@ module FixExpr (O : Ops) = struct
     type binary = O.binary
     type intrin = O.intrin
 
-    type 'v f = 'v expr_node_v
+    type 'v t = 'v expr_node_v
 
     and 'v expr_node_v =
-      | E of (const, 'v, unary, binary, intrin, 'v f) AbstractExpr.t
+      | E of (const, 'v, unary, binary, intrin, 'v t) AbstractExpr.t
 
     let fix e = E e
     let unfix e = match e with E e -> e
@@ -278,4 +270,6 @@ module FixExpr (O : Ops) = struct
   let identity x = x
 end
 
-module BasilExpr = FixExpr (AllOps)
+module BasilExpr = struct
+  include FixExpr (AllOps)
+end
