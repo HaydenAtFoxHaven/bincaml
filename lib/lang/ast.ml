@@ -374,8 +374,6 @@ end
 *)
 
 module BasilExpr = struct
-  include Final
-
   module E = struct
     include AllOps
 
@@ -414,7 +412,6 @@ module BasilExpr = struct
   module R = SmartConstr (E)
   include R
 
-  let hash_abs = hash
   let intconst (v : PrimInt.t) : t = const (`Integer v)
   let boolconst (v : bool) : t = const (`Bool v)
   let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
