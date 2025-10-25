@@ -20,8 +20,7 @@ module AbstractExpr = struct
   [@@deriving eq, ord, fold, map, iter]
 
   let id a b = a
-  let ofold = fold
-  let fold f b o = ofold id id id id id f b o
+  let fold f b o = fold id id id id id f b o
   let omap = map
 
   let map f e =
@@ -84,10 +83,62 @@ module type Fix = sig
 end
 
 module Recursion (O : Fix) = struct
+  open Fun.Infix
   open O
 
-  let ( >> ) = fun f g x -> g (f x)
-  let rec cata alg e = (unfix >> AbstractExpr.map (cata alg) >> alg) e
+  (** Recursion schemes on AbstractExpr.t for a given fix point type.
+
+      See:
+
+      https://arxiv.org/pdf/2202.13633v1
+
+      https://icfp24.sigplan.org/details/ocaml-2024-papers/11/Recursion-schemes-in-OCaml-An-experience-report
+  *)
+
+  (** Fold an algebra e -> 'a through the expression, from leaves to nodes to
+      return 'a. *)
+  let rec cata alg e = (unfix %> AbstractExpr.map (cata alg) %> alg) e
+
+  (* ana coalg = Out◦ ◦ fmap (ana coalg) ◦ coalg *)
+  let rec ana coalg e = (coalg %> AbstractExpr.map (ana coalg) %> fix) e
+
+  (** Apply function ~f to the expression first, then pass it to alg. Its result
+      is accumulated down the expression tree. *)
+  let rec map_fold ~f ~alg r e =
+    let r = f r (unfix e) in
+    (unfix %> (AbstractExpr.map (map_fold ~f ~alg r) %> alg r)) e
+
+  (* hylo *)
+  let rec hylo ~consume_alg ~produce_coalg e =
+    consume_alg
+    % AbstractExpr.map (hylo ~consume_alg ~produce_coalg)
+    % produce_coalg
+    @@ e
+
+  (* mutual recursion:
+    simultaneously evaluate two catamorphisms which can depend on each-other's results.
+     *)
+  let rec mutu alg1 alg2 =
+    let alg x = (alg1 x, alg2 x) in
+    (fst % cata alg, snd % cata alg)
+
+  (* zygomorphism;
+
+     Perform two recursion simultaneously, passing the result of the second to the first.
+     *)
+  let rec zygo alg1 alg2 = fst (mutu alg1 (AbstractExpr.map snd %> alg2))
+
+  (*
+    catamorphism that also passes the original expression through
+  *)
+  let rec para alg f e =
+    let p f g x = (f x, g x) in
+    (alg % AbstractExpr.map (p f (para alg f)) % unfix) e
+
+  let para alg e = para alg identity e
+
+  (**smart constructors **)
+
   let rvar v = fix (RVar v)
   let const v = fix (Constant v)
   let intconst v = fix (Constant v)
@@ -150,7 +201,8 @@ module BasilExpr = struct
     | ApplyIntrin (op, es) ->
         AllOps.to_string op ^ "(" ^ String.concat ", " es ^ ")"
     | ApplyFun (n, es) -> n ^ "(" ^ String.concat ", " es ^ ")"
-    | Binding (vs, b) -> String.concat " " (List.map Var.show vs) ^ " :: " ^ b
+    | Binding (vs, b) ->
+        String.concat " " (List.map Var.to_string vs) ^ " :: " ^ b
 
   let to_string s = cata print_alg s
   let pp fmt s = Format.pp_print_string fmt @@ to_string s

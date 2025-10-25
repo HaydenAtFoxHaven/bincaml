@@ -11,6 +11,10 @@ module BType = struct
     | Map of t * t
   [@@deriving eq]
 
+  let bv i = Bitvector i
+  let int = Integer
+  let bool = Boolean
+
   type func_type = { args : t list; return : t }
 
   (*
