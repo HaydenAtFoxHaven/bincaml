@@ -169,7 +169,7 @@ probably easier)
 - known bits related work (GPL):
 https://github.com/codex-semantics-library/codex/blob/main/domains/bitwise_domain.ml
 
-### Testing
+#### Validation / Testing
 
 - check the soundness property (`abstract \in concrete`) using the interpreter
 for generated programs
@@ -239,7 +239,7 @@ https://github.com/agle/eggomess/blob/0bd8401aae7f0b362ac9c730c0f5f07930a60414/b
 
 - The ir embeds an SSA structure, it would be useful to enforce this
 
-### Validation
+#### Validation / Testing
 
 - check for violations using the reaching-definitions analysis
   - depends: reaching definitions analysis
@@ -255,7 +255,7 @@ https://github.com/agle/eggomess/blob/0bd8401aae7f0b362ac9c730c0f5f07930a60414/b
 - Check whether we can leverage existing loop algorithm in ocaml graph
 - Reducible loops would be cool for tv
 
-### Validation
+#### Validation / Testing
 
 - whole program interpreter on irreducible programs
 - unit tests
