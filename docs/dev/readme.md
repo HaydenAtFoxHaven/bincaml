@@ -153,7 +153,6 @@ Implemenentation options:
 - all branches are total and deterministic
 - everything is declared before use
 
-
 ## Value Analysis
 
 A static analysis that assigns each variable an abstract value. For some
@@ -250,6 +249,16 @@ https://github.com/agle/eggomess/blob/0bd8401aae7f0b362ac9c730c0f5f07930a60414/b
 - Via linear congruence equality domain (Mine, etc.)
 - interval analysis
 - relational analysis with TIP
+
+## Irreducible loop transform
+
+- Check whether we can leverage existing loop algorithm in ocaml graph
+- Reducible loops would be cool for tv
+
+### Validation
+
+- whole program interpreter on irreducible programs
+- unit tests
 
 ## Translation validator
 
