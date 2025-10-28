@@ -90,25 +90,22 @@ module SMTLib2 = struct
       =
     let open AbstractExpr in
     let open BasilExpr in
+    let orig s = fix @@ map fst s in
+    let repeat bit bits body =
+      let l = List.init bits (fun i -> bit) in
+      List.fold_left (fun acc e -> binexp ~op:`BVConcat acc e) body l
+    in
     match e with
-    | AbstractExpr.BinaryExpr (op, (a, _), (b, _)) -> binexp ~op a b
-    | AbstractExpr.ApplyIntrin (a, args) ->
-        applyintrin ~op:a (List.map fst args)
-    | AbstractExpr.ApplyFun (name, args) -> apply_fun ~name (List.map fst args)
-    | Constant c -> const c
-    | Binding (vs, (o, t)) -> fix @@ Binding (vs, o)
-    | RVar r -> rvar r
     | UnaryExpr (`ZeroExtend bits, (e, t)) -> (
         match t with
-        | Bitvector size ->
-            binexp ~op:`BVConcat (bvconst @@ PrimQFBV.zero ~size) e
+        | Bitvector size -> repeat (bvconst @@ PrimQFBV.zero ~size) bits e
         | _ -> failwith "type error")
-    | UnaryExpr (`SignExtend bits, (e, t)) -> (
+    | UnaryExpr (`SignExtend bits, (body, t)) -> (
         match t with
         | Bitvector size ->
-            binexp ~op:`BVConcat (extract ~hi_incl:size ~lo_excl:(size - 1) e) e
+            repeat (extract ~hi_incl:size ~lo_excl:(size - 1) body) bits body
         | _ -> failwith "type error")
-    | AbstractExpr.UnaryExpr (op, (o, t)) -> unexp ~op o
+    | o -> orig o
 
   (* TODO: Factor this out into BasilExpr; it might be better to structure this more; since we are doing type-inference
      along the way maybe it makes sense to check the substituted expression is type-correct for its context?
@@ -179,5 +176,5 @@ module SMTLib2 = struct
     [%expect
       {|
       eq(sign_extend_10(0x7:bv3), 0x64:bv13)
-      (eq (concat ((_ extract 2 2) (_ bv7 3)) (_ bv7 3)) (_ bv100 13)) |}]
+      (eq (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat (_ bv7 3) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) (_ bv100 13)) |}]
 end
