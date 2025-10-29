@@ -127,7 +127,7 @@ module BVOps = struct
     | `BVSDIV -> sdiv
     | `BVADD -> add
     | `BVASHR -> ashr
-    | `BVSMOD -> failwith "unimplemnted"
+    | `BVSMOD -> smod
     | `BVSHL -> shl
     | `BVNAND -> fun a b -> bitnot (bitand a b)
     | `BVUREM -> urem

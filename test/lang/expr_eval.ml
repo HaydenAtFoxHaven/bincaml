@@ -12,9 +12,7 @@ let rel_bv_ops = [ `NEQ; `EQ; `BVULT; `BVSLE; `BVULE; `BVSLT ]
 let bv_other_ops = [ `BVConcat ]
 *)
 let bv_unop = [ `BVNOT; `BVNEG ]
-
-let bv_ops_partial =
-  [ `BVSREM; `BVSDIV; `BVUREM; `BVUDIV (*`BVSMOD; (*: unimplemented *)*) ]
+let bv_ops_partial = [ `BVSREM; `BVSDIV; `BVUREM; `BVUDIV; `BVSMOD ]
 
 let bv_ops_total =
   [
@@ -78,7 +76,7 @@ module ExprGen = struct
                 ( 2,
                   let* l = self 0 in
                   let* r = self 1 in
-                  arb_binop_total l r );
+                  arb_binop_partial l r );
               ])
 
   let eval_expr =

@@ -74,21 +74,25 @@ module PrimQFBV = struct
     in
     { w; v }
 
-  let size_is_equal a b = assert (width a = width b)
-  let bind f a = create ~width:a.w (f a.v)
+  let size_is_equal a b = assert (width a = width b) [@@inline always]
+  let bind f a = create ~width:a.w (f a.v) [@@inline always]
 
   (* wrap bv operation *)
   let bind2 f a b =
     size_is_equal a b;
     create ~width:a.w (f a.v b.v)
+  [@@inline always]
 
+  (* wrap signed bv operation *)
   let bind2_signed f a b =
     size_is_equal a b;
     create ~width:a.w (f (to_signed_bigint a) (to_signed_bigint b))
+  [@@inline always]
 
   let map2 f a b =
     size_is_equal a b;
     f a.v b.v
+  [@@inline always]
 
   let neg a = bind Z.neg a
   let add a b = bind2 Z.add a b
@@ -120,6 +124,20 @@ module PrimQFBV = struct
   let sgt a b = map2_signed Z.gt a b
   let sle a b = map2_signed Z.leq a b
   let sge a b = map2_signed Z.geq a b
+
+  let smod a b =
+    (* TODO: can we write this in terms of Z.erem or Z.rem ? *)
+    let isneg a = slt a (zero ~size:a.w) in
+    let msb_a = isneg a in
+    let msb_b = isneg b in
+    let abs_a = if msb_a then neg a else a in
+    let abs_b = if msb_b then neg b else b in
+    let u = urem abs_a abs_b in
+    if is_zero u then u
+    else if (not msb_a) && not msb_b then u
+    else if msb_a && not msb_b then sub b u
+    else if (not msb_a) && msb_b then add u b
+    else neg u
 
   let ashr a b =
     { w = a.w; v = Z.shift_right (to_signed_bigint a) (Z.to_int b.v) }
