@@ -173,6 +173,20 @@ module Block = struct
   (** a phi node representing the join of incoming edges assigned to a lhs
       variable*)
 
+  module V = struct
+    type 'a t = 'a Vector.ro_vector
+
+    let equal e a b = Vector.equal e a b
+    let compare e a b = Vector.compare e a b
+  end
+
+  type ('v, 'e) t = {
+    phis : 'v phi list;
+        (** List of phi nodes simultaneously assigning each input variable *)
+    stmts : ('v, 'v, 'e) Stmt.t V.t;  (** statement list *)
+  }
+  [@@deriving eq, ord]
+
   let pretty_phi show_var v =
     let open Containers_pp in
     let open Containers_pp.Infix in
@@ -186,19 +200,7 @@ module Block = struct
     in
     lhs ^ text " := phi" ^ (bracket "(" (fill (text ", ") rhs)) ")"
 
-  type ('v, 'e) stmt_list = ('v, 'v, 'e) Stmt.t Vector.ro_vector
-
-  type ('v, 'e) t = {
-    id : ID.t;  (** the block identfier *)
-    phis : 'v phi list;
-        (** List of phi nodes simultaneously assigning each input variable *)
-    stmts : ('v, 'e) stmt_list;  (** statement list *)
-  }
-
-  let equal _ _ a b = ID.equal a.id b.id
-  let compare _ _ a b = ID.compare a.id b.id
-
-  let pretty show_lvar show_var show_expr ?(succ = []) b =
+  let pretty show_lvar show_var show_expr ?(terminator = []) ?block_id b =
     let open Containers_pp in
     let open Containers_pp.Infix in
     let phi =
@@ -208,36 +210,30 @@ module Block = struct
           let phi = List.map (pretty_phi show_var) o in
           [ bracket "(" (fill (text ",") phi) ")" ]
     in
-    let jump =
-      match succ with
-      | [] -> text "unreachable;"
-      | succ ->
-          text "goto "
-          ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ
-          ^ text ";"
-    in
     let stmts =
       Vector.to_list b.stmts
       |> List.map (Stmt.pretty show_lvar show_var show_expr)
     in
-    let stmts = phi @ stmts @ [ jump ] in
+    let stmts = phi @ stmts @ terminator in
     let stmts =
       bracket "["
         (nest 2 @@ newline ^ append_l ~sep:(text ";" ^ newline) stmts)
         "]"
     in
-    text "block " ^ text (ID.to_string b.id) ^ text " " ^ stmts
+    let name =
+      Option.map
+        (fun id -> text "block " ^ text (ID.to_string id) ^ text " ")
+        block_id
+    in
+    let name = Option.get_or ~default:nil name in
+    name ^ stmts
 
   let to_string b =
-    let stmts =
-      Vector.map
-        (fun stmt ->
-          Stmt.to_string Var.to_string Var.to_string BasilExpr.to_string stmt)
-        b.stmts
-      |> Vector.to_iter
-      |> String.concat_iter ~sep:";\n  "
-    in
-    Printf.sprintf "block %s [\n  %s]\n" (ID.to_string b.id) stmts
+    let b = pretty Var.to_string Var.to_string BasilExpr.to_string b in
+    Containers_pp.Pretty.to_string ~width:80 b
+
+  let stmt_iter b = Vector.to_iter b.stmts
+  let stmt_iter b = Vector.to_iter b.stmts
 
   let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
@@ -339,7 +335,7 @@ module Procedure = struct
   let add_block p id ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
       ?(successors = []) () =
     let stmts = Vector.of_list stmts in
-    let b = Edge.(Block { id; phis; stmts }) in
+    let b = Edge.(Block { phis; stmts }) in
     let open Vert in
     G.add_vertex p.graph (Begin id);
     G.add_vertex p.graph (Begin id);
@@ -368,11 +364,7 @@ module Procedure = struct
     let b =
       Edge.(
         Block
-          {
-            id;
-            phis = [];
-            stmts = Vector.of_list [ Stmt.(Instr_Return { args }) ];
-          })
+          { phis = []; stmts = Vector.of_list [ Stmt.(Instr_Return { args }) ] })
     in
     G.add_edge_e p.graph (fr, b, Return)
 
@@ -392,10 +384,9 @@ module Procedure = struct
       match e with Block b -> Some b | Jump -> None
     with Not_found -> None
 
-  let update_block p (block : (Var.t, BasilExpr.t) Block.t) =
+  let update_block p id (block : (Var.t, BasilExpr.t) Block.t) =
     let open Edge in
     let open G in
-    let id = block.id in
     G.remove_edge p.graph (Begin id) (End id);
     G.add_edge_e p.graph (Begin id, Block block, End id)
 
@@ -440,20 +431,43 @@ module Procedure = struct
              [ params p.formal_in_params; params p.formal_out_params ])
     in
     let collect_edge b ende acc =
+      let vert = G.V.label b in
       let edge = G.E.label (G.find_edge p.graph b ende) in
-      match edge with
-      | Edge.(Block b) ->
+      match (vert, edge) with
+      | Vert.Begin block_id, Edge.(Block b) ->
           let succ = G.succ p.graph ende in
           let succ =
             match succ with
             | [ Return ] -> (
                 let _, re, _ = G.find_edge p.graph ende Return in
                 match re with
-                | Block { id } -> [ text (ID.to_string id) ]
+                | Block { stmts } ->
+                    Vector.map
+                      (fun s ->
+                        Stmt.pretty show_lvar show_var show_expr s ^ text ";")
+                      stmts
+                    |> Vector.to_list
                 | _ -> failwith "bad return")
-            | succ -> List.map (fun v -> text (Vert.block_id_string v)) succ
+            | [] -> [ text "unreachable;" ]
+            | succ ->
+                let succ =
+                  List.map
+                    (fun f ->
+                      match G.V.label f with
+                      | Begin i -> text @@ ID.to_string i
+                      | _ -> failwith "unsupp")
+                    succ
+                in
+                [
+                  text "goto "
+                  ^ (fun s -> bracket "(" (fill (text ",") s) ")") succ
+                  ^ text ";";
+                ]
           in
-          let b = Block.pretty show_lvar show_var show_expr ~succ b in
+          let b =
+            Block.pretty show_lvar show_var show_expr ~block_id ~terminator:succ
+              b
+          in
           b :: acc
       | _ -> acc
     in
@@ -476,6 +490,7 @@ module Program = struct
   type t = {
     modulename : string;
     globals : Var.t Var.Decls.t;
+    entry_proc : ID.t option;
     procs : proc ID.Map.t;
     proc_names : ID.generator;
   }
@@ -486,6 +501,7 @@ module Program = struct
     let modulename = Option.get_or ~default:"<module>" name in
     {
       modulename;
+      entry_proc = None;
       globals = Var.Decls.empty ();
       procs = ID.Map.empty;
       proc_names = ID.make_gen ();

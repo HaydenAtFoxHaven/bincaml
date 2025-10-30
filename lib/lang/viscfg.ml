@@ -52,8 +52,8 @@ module Make (L : Labelling) = Graph.Graphviz.Dot (struct
     let open Vert in
     let n =
       match v with
-      | Begin v -> Printf.sprintf "beg%s" (ID.to_string v)
-      | End v -> Printf.sprintf "end%s" (ID.to_string v)
+      | Begin v -> Printf.sprintf "beg%d" (ID.index v)
+      | End v -> Printf.sprintf "end%d" (ID.index v)
       | Entry -> "entry"
       | Exit -> "exit"
       | Return -> "return"

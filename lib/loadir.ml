@@ -91,8 +91,8 @@ module BasilASTLoader = struct
     | Decl_UninterpFun (attrDefList, glident, argtypes, rettype) -> prog
     | Decl_Fun (attrList, glident, params, rt, body) -> prog
     | Decl_Axiom _ -> prog
-    | Decl_ProgEmpty _ -> prog
-    | Decl_ProgWithSpec _ -> prog
+    | Decl_ProgEmpty (ProcIdent (_, id), attr) -> prog
+    | Decl_ProgWithSpec (ProcIdent (_, id), attr, _, spec, _) -> prog
     | Decl_Proc
         ( ProcIdent (id_pos, id),
           in_params,
@@ -132,6 +132,14 @@ module BasilASTLoader = struct
 
   and transDefinition prog (x : decl) : load_st =
     match x with
+    | Decl_ProgEmpty (ProcIdent (_, id), attr) ->
+        map_prog
+          (fun p -> { p with entry_proc = Some (p.proc_names.get_id id) })
+          prog
+    | Decl_ProgWithSpec (ProcIdent (_, id), attr, _, spec, _) ->
+        map_prog
+          (fun p -> { p with entry_proc = Some (p.proc_names.get_id id) })
+          prog
     | Decl_Proc
         ( ProcIdent (id_pos, id),
           in_params,

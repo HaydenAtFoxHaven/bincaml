@@ -13,6 +13,7 @@ module M = CCBijection.Make (String) (Int)
 module ID = struct
   type t = string * int [@@deriving show]
 
+  let index n = snd n
   let to_string n = fst n
   let compare a b = Int.compare (snd a) (snd b)
   let equal a b = Int.equal (snd a) (snd b)

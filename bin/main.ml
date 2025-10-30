@@ -14,12 +14,12 @@ let check fname proc =
   if not @@ String.equal proc "" then
     let id = p.prog.proc_names.get_id proc in
     let p = Lang.ID.Map.find id p.prog.procs in
-    let p =
+    Lang.Livevars.print_live_vars_dot Format.std_formatter p
+    (*let p =
       Lang.Prog.Procedure.pretty Lang.Var.to_string
         Lang.Expr.BasilExpr.to_string p
     in
-    print_endline @@ Containers_pp.Pretty.to_string ~width:80 p
-    (*Lang.Livevars.print_live_vars_dot Format.std_formatter p*)
+    print_endline @@ Containers_pp.Pretty.to_string ~width:80 p*)
   else procs p.prog
 
 let fname =

@@ -6,9 +6,14 @@ module V = BasilExpr.VarSet
 module B = Map.Make (Var)
 
 let show_v b =
-  V.to_list b
-  |> List.map (fun v -> Printf.sprintf "%s" (Var.name v))
-  |> String.concat ", "
+  let open Containers_pp in
+  let open Containers_pp.Infix in
+  let x =
+    fill
+      (text "," ^ newline)
+      (V.to_list b |> List.map (fun v -> Containers_pp.text (Var.name v)))
+  in
+  Pretty.to_string ~width:80 x
 
 let assigned_stmt (init : V.t) s : V.t =
   let f_lvar a v = V.add v a in
