@@ -12,7 +12,9 @@
   viscfg
   livevars
   expr_smt
-  expr_eval)
+  expr_eval
+  ID
+  )
  (flags -w -27)
  (libraries zarith fix ocamlgraph containers containers-data iter containers.pp)
  (inline_tests)

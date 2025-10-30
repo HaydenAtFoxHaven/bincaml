@@ -1,6 +1,7 @@
 open Cmdliner
 open Lang.Prog
 open Containers
+open Lang
 
 let () = Printexc.record_backtrace true
 
@@ -8,13 +9,11 @@ let check fname proc =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in
   let procs prog =
     let open Program in
-    ID.Map.iter
-      (fun i _ -> Printf.printf "%d %s\n" i (prog.proc_names.get_name i))
-      prog.procs
+    Lang.ID.Map.iter (fun i _ -> Printf.printf "%s\n" (ID.show i)) prog.procs
   in
   if not @@ String.equal proc "" then
     let id = p.prog.proc_names.get_id proc in
-    let p = ID.Map.find id p.prog.procs in
+    let p = Lang.ID.Map.find id p.prog.procs in
     let p =
       Lang.Prog.Procedure.pretty Lang.Var.to_string
         Lang.Expr.BasilExpr.to_string p

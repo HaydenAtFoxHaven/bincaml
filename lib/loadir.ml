@@ -52,6 +52,8 @@ module BasilASTLoader = struct
     match x with
     | Module1 declarations ->
         List.fold_left transDeclaration prog declarations |> fun p ->
+        Iter.for_each (p.prog.proc_names.get_declared ()) (fun i ->
+            print_endline (ID.to_string i));
         List.fold_left transDefinition p declarations
 
   and transDeclaration prog (x : decl) : load_st =
@@ -97,7 +99,7 @@ module BasilASTLoader = struct
           ProcDef_Empty ) ->
         let formal_in_params_order = List.map param_to_formal in_params in
         let formal_out_params_order = List.map param_to_formal out_params in
-        let _ = prog.prog.proc_names.fresh ~name:id () in
+        let _ = prog.prog.proc_names.decl_or_get id in
         Hashtbl.add prog.params_order id
           (formal_in_params_order, formal_out_params_order);
         prog
@@ -108,7 +110,7 @@ module BasilASTLoader = struct
           attrs,
           spec_list,
           ProcDef_Some (bl, blocks, el) ) ->
-        let proc_id = prog.prog.proc_names.fresh ~name:id () in
+        let proc_id = prog.prog.proc_names.decl_or_get id in
         let formal_in_params_order = List.map param_to_formal in_params in
         let formal_in_params = formal_in_params_order |> Params.M.of_list in
         let formal_out_params_order = List.map param_to_formal out_params in
@@ -135,7 +137,7 @@ module BasilASTLoader = struct
           spec_list,
           ProcDef_Some (bl, blocks, el) ) ->
         let blocks = List.map (trans_block prog) blocks in
-        let proc_id = prog.prog.proc_names.get_id id in
+        let proc_id = prog.prog.proc_names.decl_or_get id in
         let p = ID.Map.find proc_id prog.prog.procs in
         let open Procedure.Vert in
         let formal_out_params_order = List.map param_to_formal out_params in
@@ -145,7 +147,7 @@ module BasilASTLoader = struct
             (function
               | LBlock (name, stmts, succ) ->
                   let stmts = stmts in
-                  (name, Procedure.fresh_block p ~stmts ()))
+                  (name, Procedure.decl_block_exn p name ~stmts ()))
             blocks
         in
         let block_label_id = StringMap.of_list blocks_id in

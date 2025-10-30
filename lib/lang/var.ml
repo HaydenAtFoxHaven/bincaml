@@ -37,13 +37,12 @@ module Set = CCHashSet.Make (V)
 module Bindings = CCHashTrie.Make (V)
 
 module Decls = struct
-  type var = t
   type 'v t = (string, 'v) Hashtbl.t
 
   let find_opt m name = Hashtbl.find_opt m name
   let empty () : 'v t = Hashtbl.create 30
 
-  let add m (v : var) =
+  let add m (v : 'v) =
     let d = find_opt m (name v) in
     match d with
     | Some e when equal e v -> ()

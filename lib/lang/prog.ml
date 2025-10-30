@@ -4,41 +4,6 @@ open Types
 open Expr
 open Containers
 
-module ID = struct
-  include Int
-  module Map = Map.Make (Int)
-
-  module Named = struct
-    (* generator for unique integer identifiers with an optionally associated name.
-       maintains a mapping between id and name.
-
-       note: ID.t is the canonical identifier,
-        with the associated name assumed to be unique with respect to it.
-       *)
-    module M = CCBijection.Make (String) (Int)
-
-    type cache = { names : M.t ref; gen : Fix.Gensym.gensym }
-
-    let get_id c name = M.find_left name !(c.names)
-    let get_name c id = M.find_right id !(c.names)
-
-    let fresh c ?(name : string option) () =
-      let id = c.gen () in
-      Option.iter (fun n -> c.names := M.add n id !(c.names)) name;
-      id
-
-    type t = {
-      get_id : string -> int;
-      get_name : int -> string;
-      fresh : ?name:string -> unit -> int;
-    }
-
-    let make () =
-      let c = { names = ref M.empty; gen = Fix.Gensym.make () } in
-      { get_id = get_id c; fresh = fresh c; get_name = get_name c }
-  end
-end
-
 module Params = struct
   module M = Map.Make (String) [@@deriving show]
 
@@ -187,7 +152,7 @@ module Stmt = struct
             param_list args;
           ]
     | Instr_Call { lhs; procid; args } ->
-        let n = Int.to_string procid in
+        let n = ID.to_string procid in
         fill nil
           [
             param_list lhs; newline ^ text " := call "; text n; param_list args;
@@ -268,7 +233,7 @@ module Block = struct
       |> Vector.to_iter
       |> String.concat_iter ~sep:";\n  "
     in
-    Printf.sprintf "block %d [\n  %s]\n" b.id stmts
+    Printf.sprintf "block %s [\n  %s]\n" (ID.to_string b.id) stmts
 
   let fold_stmt_forwards ~(phi : 'acc -> 'v phi list -> 'acc)
       ~(f : 'acc -> ('v, 'v, 'e) Stmt.t -> 'acc) (i : 'a) (b : ('v, 'e) t) :
@@ -295,8 +260,8 @@ module Procedure = struct
           | Entry -> (1, 1)
           | Return -> (3, 1)
           | Exit -> (5, 1)
-          | Begin i -> (31, i)
-          | End i -> (37, i))
+          | Begin i -> (31, ID.hash i)
+          | End i -> (37, ID.hash i))
         h v
 
     let block_id_string = function
@@ -325,18 +290,18 @@ module Procedure = struct
   type ('v, 'e) proc_spec = {
     requires : BasilExpr.t list;
     ensures : BasilExpr.t list;
-    captures_globs : 'v Var.Decls.t;
-    modifies_globs : 'v Var.Decls.t;
+    captures_globs : 'v list;
+    modifies_globs : 'v list;
   }
 
   type ('v, 'e) t = {
     id : ID.t;
     formal_in_params : 'v Params.M.t;
     formal_out_params : 'v Params.M.t;
-    locals : 'v Var.Decls.t;
     graph : G.t;
-    gensym : Fix.Gensym.gensym;
-    gensym_bloc : Fix.Gensym.gensym;
+    locals : 'v Var.Decls.t;
+    local_ids : ID.generator;
+    block_ids : ID.generator;
     specification : ('v, 'e) proc_spec option;
   }
 
@@ -383,10 +348,8 @@ module Procedure = struct
     List.iter (fun t -> G.add_edge g fr (Begin t)) targets
 
   let create id ?(formal_in_params = Params.M.empty)
-      ?(formal_out_params = Params.M.empty)
-      ?(captures_globs = Var.Decls.empty ())
-      ?(modifies_globs = Var.Decls.empty ()) ?(requires = []) ?(ensures = [])
-      ?(locals = Var.Decls.empty ()) ?(blocks = Vector.create ()) () =
+      ?(formal_out_params = Params.M.empty) ?(captures_globs = [])
+      ?(modifies_globs = []) ?(requires = []) ?(ensures = []) () =
     let graph = G.create () in
     let specification =
       Some { captures_globs; modifies_globs; requires; ensures }
@@ -399,29 +362,41 @@ module Procedure = struct
       formal_in_params;
       formal_out_params;
       graph;
-      locals;
-      gensym = Fix.Gensym.make ();
-      gensym_bloc = Fix.Gensym.make ();
+      locals = Var.Decls.empty ();
+      local_ids = ID.make_gen ();
+      block_ids = ID.make_gen ();
       specification;
     }
 
-  let fresh_block p ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
+  let add_block p id ?(phis = []) ~(stmts : ('var, 'var, 'expr) Stmt.t list)
       ?(successors = []) () =
-    let open Block in
-    let id = p.gensym_bloc () in
     let stmts = Vector.of_list stmts in
     let b = Edge.(Block { id; phis; stmts }) in
     let open Vert in
     G.add_vertex p.graph (Begin id);
     G.add_vertex p.graph (Begin id);
     G.add_edge_e p.graph (Begin id, b, End id);
-    List.iter (fun i -> G.add_edge p.graph (End id) (Begin i)) successors;
+    List.iter (fun i -> G.add_edge p.graph (End id) (Begin i)) successors
+
+  let decl_block_exn p name ?(phis = [])
+      ~(stmts : ('var, 'var, 'expr) Stmt.t list) ?(successors = []) () =
+    let open Block in
+    let id = p.block_ids.decl_exn name in
+    add_block p id ~phis ~stmts ~successors ();
+    id
+
+  let fresh_block p ?name ?(phis = [])
+      ~(stmts : ('var, 'var, 'expr) Stmt.t list) ?(successors = []) () =
+    let open Block in
+    let name = Option.get_or ~default:"block" name in
+    let id = p.block_ids.fresh ~name () in
+    add_block p id ~phis ~stmts ~successors ();
     id
 
   let add_return p ~(from : ID.t) ~(args : BasilExpr.t Params.M.t) =
     let open Vert in
     let fr = End from in
-    let id = p.gensym_bloc () in
+    let id = p.block_ids.fresh ~name:"retbl" () in
     let b =
       Edge.(
         Block
@@ -457,7 +432,7 @@ module Procedure = struct
     G.add_edge_e p.graph (Begin id, Block block, End id)
 
   let fresh_var p ?(pure = true) typ =
-    let n = "v" ^ Int.to_string (p.gensym ()) in
+    let n, _ = p.local_ids.fresh ~name:"v" () in
     let v = Var.create n typ ~pure in
     Var.Decls.add p.locals v;
     v
@@ -475,7 +450,7 @@ module Program = struct
     modulename : string;
     globals : Var.t Var.Decls.t;
     procs : proc ID.Map.t;
-    proc_names : ID.Named.t;
+    proc_names : ID.generator;
   }
 
   let decl_glob p = Var.Decls.add p.globals
@@ -486,6 +461,6 @@ module Program = struct
       modulename;
       globals = Var.Decls.empty ();
       procs = ID.Map.empty;
-      proc_names = ID.Named.make ();
+      proc_names = ID.make_gen ();
     }
 end
