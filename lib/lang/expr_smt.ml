@@ -152,6 +152,7 @@ module SMTLib2 = struct
             atom @@ Int.to_string @@ PrimQFBV.size i;
           ]
     | `EQ -> atom "="
+    | `BoolNOT -> atom "not"
     | #Ops.AllOps.unary as o -> atom @@ Ops.AllOps.to_string o
     | #Ops.AllOps.const as o -> atom @@ Ops.AllOps.to_string o
     | #Ops.AllOps.binary as o -> atom @@ Ops.AllOps.to_string o
