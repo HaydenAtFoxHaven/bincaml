@@ -101,8 +101,7 @@ module BVOps = struct
     | `BVSLT -> PrimQFBV.slt
 
   type binary_unif =
-    [ `BVConcat
-    | `BVAND
+    [ `BVAND
     | `BVOR
     | `BVADD
     | `BVMUL
@@ -135,7 +134,6 @@ module BVOps = struct
     | `BVOR -> bitor
     | `BVSUB -> sub
     | `BVUDIV -> udiv
-    | `BVConcat -> concat
     | `BVLSHR -> lshr
     | `BVAND -> bitand
     | `BVMUL -> mul
@@ -143,7 +141,7 @@ module BVOps = struct
   type binary = [ binary_pred | binary_unif ]
   [@@deriving show { with_path = false }, eq, ord]
 
-  type intrin = [ `BVAND | `BVOR | `BVADD | `BVXOR ]
+  type intrin = [ `BVAND | `BVOR | `BVADD | `BVXOR | `BVConcat ]
   [@@deriving show { with_path = false }, eq, ord]
 
   let eval_intrin (op : intrin) args =
@@ -157,6 +155,7 @@ module BVOps = struct
     | `BVXOR -> ev PrimQFBV.bitxor
     | `BVOR -> ev PrimQFBV.bitor
     | `BVAND -> ev PrimQFBV.bitand
+    | `BVConcat -> ev PrimQFBV.concat
 
   let show = function
     | #const as c -> show_const c
@@ -264,10 +263,6 @@ module AllOps = struct
     | `BVAND | `BVOR | `BVADD | `BVMUL | `BVUDIV | `BVUREM | `BVSHL | `BVLSHR
     | `BVNAND | `BVXOR | `BVSUB | `BVSDIV | `BVSREM | `BVSMOD | `BVASHR ->
         return l
-    | `BVConcat -> (
-        match (l, r) with
-        | Bitvector i, Bitvector j -> return @@ Bitvector (i + j)
-        | i, j -> Conflict [ (i, "<Bitvector"); (j, "<bitvector") ])
 
   let ret_type_intrin (o : intrin) args =
     let open Types.BType in
@@ -279,6 +274,23 @@ module AllOps = struct
     | `BVAND -> return @@ List.hd args
     | `OR -> return Boolean
     | `AND -> return Boolean
+    | `BVConcat ->
+        let x =
+          List.filter_map
+            (function Bitvector _ -> None | o -> Some (o, "<bitvector"))
+            args
+        in
+        if List.length x > 0 then Conflict x
+        else
+          let w =
+            List.fold_left
+              (fun (a : int) (i : Types.BType.t) ->
+                match i with
+                | Bitvector i -> a + i
+                | _ -> failwith "unreachable")
+              0 args
+          in
+          return (Bitvector w)
 
   (** ops returning booleans *)
 

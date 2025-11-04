@@ -515,7 +515,7 @@ expr : value { Expr_Literal $1 }
   | KW_zero_extend SYMB5 intVal SYMB2 expr SYMB6 { Expr_ZeroExtend ($3, $5) }
   | KW_sign_extend SYMB5 intVal SYMB2 expr SYMB6 { Expr_SignExtend ($3, $5) }
   | KW_extract SYMB5 intVal SYMB2 intVal SYMB2 expr SYMB6 { Expr_Extract ($3, $5, $7) }
-  | KW_bvconcat SYMB5 expr SYMB2 expr SYMB6 { Expr_Concat ($3, $5) }
+  | KW_bvconcat SYMB5 expr_list SYMB6 { Expr_Concat $3 }
   ;
 
 lambdaDef : SYMB5 localVar_list SYMB6 lambdaSep expr { LambdaDef1 ($2, $4, $5) }

@@ -440,8 +440,8 @@ module BasilASTLoader = struct
           ~hi_incl:(transIntVal ival0 |> Z.to_int)
           ~lo_excl:(transIntVal intval |> Z.to_int)
           (trans_expr expr)
-    | Expr_Concat (expr0, expr) ->
-        BasilExpr.concat (trans_expr expr0) (trans_expr expr)
+    | Expr_Concat exprs ->
+        BasilExpr.applyintrin ~op:`BVConcat (List.map trans_expr exprs)
     | Expr_Literal (Value_BV (BVVal1 (intval, BVType1 bvtype))) ->
         BasilExpr.bvconst
           (match transBVTYPE bvtype with

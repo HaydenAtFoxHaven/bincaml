@@ -158,7 +158,7 @@ and expr =
  | Expr_ZeroExtend of intVal * expr
  | Expr_SignExtend of intVal * expr
  | Expr_Extract of intVal * intVal * expr
- | Expr_Concat of expr * expr
+ | Expr_Concat of expr list
 
 and lambdaDef =
    LambdaDef1 of localVar list * lambdaSep * expr

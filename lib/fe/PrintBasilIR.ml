@@ -339,7 +339,7 @@ and prtExpr (i:int) (e : AbsBasilIR.expr) : doc = match e with
   |    AbsBasilIR.Expr_ZeroExtend (intval, expr) -> prPrec i 0 (concatD [render "zero_extend" ; render "(" ; prtIntVal 0 intval ; render "," ; prtExpr 0 expr ; render ")"])
   |    AbsBasilIR.Expr_SignExtend (intval, expr) -> prPrec i 0 (concatD [render "sign_extend" ; render "(" ; prtIntVal 0 intval ; render "," ; prtExpr 0 expr ; render ")"])
   |    AbsBasilIR.Expr_Extract (intval1, intval2, expr) -> prPrec i 0 (concatD [render "extract" ; render "(" ; prtIntVal 0 intval1 ; render "," ; prtIntVal 0 intval2 ; render "," ; prtExpr 0 expr ; render ")"])
-  |    AbsBasilIR.Expr_Concat (expr1, expr2) -> prPrec i 0 (concatD [render "bvconcat" ; render "(" ; prtExpr 0 expr1 ; render "," ; prtExpr 0 expr2 ; render ")"])
+  |    AbsBasilIR.Expr_Concat exprs -> prPrec i 0 (concatD [render "bvconcat" ; render "(" ; prtExprListBNFC 0 exprs ; render ")"])
 
 and prtExprListBNFC i es : doc = match (i, es) with
     (_,[]) -> (concatD [])

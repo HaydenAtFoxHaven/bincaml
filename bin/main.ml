@@ -14,7 +14,7 @@ let proc =
   let doc = "proc to output" and docv = "PROC" in
   Arg.(value & opt string "" & info [ "p"; "proc" ] ~doc ~docv)
 
-let print_proc chan p = Prog.Program.proc_pretty chan p
+let print_proc chan p = Prog.Program.output_proc_pretty chan p
 
 let list_procs fname =
   let p = Ocaml_of_basil.Loadir.ast_of_fname fname in

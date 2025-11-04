@@ -244,7 +244,7 @@ and transExpr (x : expr) : result = match x with
   | Expr_ZeroExtend (intval, expr) -> failure x
   | Expr_SignExtend (intval, expr) -> failure x
   | Expr_Extract (intval0, intval, expr) -> failure x
-  | Expr_Concat (expr0, expr) -> failure x
+  | Expr_Concat exprs -> failure x
 
 
 and transLambdaDef (x : lambdaDef) : result = match x with

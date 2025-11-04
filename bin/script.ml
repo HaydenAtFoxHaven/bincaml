@@ -4,7 +4,7 @@ open Prog
 
 exception Parse
 
-let print_proc chan p = Prog.Program.proc_pretty chan p
+let print_proc chan p = Prog.Program.output_proc_pretty chan p
 
 let assert_atoms n args =
   assert (List.length args = n);

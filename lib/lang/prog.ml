@@ -156,14 +156,11 @@ module Stmt = struct
         in
         bracket "(" (nest 2 (fill (text "," ^ newline_or_spaces 1) l)) ") := "
     in
-    let show_lvar v = text @@ show_lvar v in
-    let show_var v = text @@ show_var v in
-    let show_expr e = text @@ show_expr e in
     let e = map ~f_lvar:show_lvar ~f_expr:show_expr ~f_rvar:show_var s in
     match e with
     | Instr_Assign ls ->
         let ls = List.map (function lhs, rhs -> lhs ^ text " := " ^ rhs) ls in
-        let b = fill (text " ,") ls in
+        let b = fill (text "," ^ newline) ls in
         if List.length ls > 1 then bracket "(" b ")" else b
     | Instr_Assert { body } -> text "assert " ^ body
     | Instr_Assume { body; branch = false } -> text "assume " ^ body
@@ -227,12 +224,11 @@ module Block = struct
   let pretty_phi show_var v =
     let open Containers_pp in
     let open Containers_pp.Infix in
-    let lhs = text (show_var v.lhs) in
+    let lhs = show_var v.lhs in
     let rhs =
       List.map
         (function
-          | bid, v ->
-              (text @@ ID.to_string bid) ^ text " -> " ^ text (show_var v))
+          | bid, v -> (text @@ ID.to_string bid) ^ text " -> " ^ show_var v)
         v.rhs
     in
     lhs ^ text " := phi" ^ (bracket "(" (fill (text ", ") rhs)) ")"
@@ -266,7 +262,10 @@ module Block = struct
     name ^ stmts
 
   let to_string b =
-    let b = pretty Var.to_string Var.to_string BasilExpr.to_string b in
+    let tt f v = Containers_pp.text (f v) in
+    let b =
+      pretty (tt Var.to_string) (tt Var.to_string) (tt BasilExpr.to_string) b
+    in
     Containers_pp.Pretty.to_string ~width:80 b
 
   let stmts_iter b = Vector.to_iter b.stmts
@@ -458,10 +457,8 @@ module Procedure = struct
     let open Containers_pp in
     let open Containers_pp.Infix in
     let params m =
-      Params.M.to_list m
-      |> List.map (function i, p -> show_var p)
-      |> List.map text
-      |> fun s -> bracket "(" (fill (text "," ^ newline_or_spaces 1) s) ")"
+      Params.M.to_list m |> List.map (function i, p -> show_var p) |> fun s ->
+      bracket "(" (fill (text "," ^ newline_or_spaces 1) s) ")"
     in
     let header =
       text "proc "
@@ -536,13 +533,15 @@ module Program = struct
     proc_names : ID.generator;
   }
 
-  let proc_pretty chan p =
-    let p =
-      Procedure.pretty Var.to_string_il_lvar Var.to_string_il_rvar
-        Expr.BasilExpr.to_string p
-    in
-    output_string chan @@ Containers_pp.Pretty.to_string ~width:80 p;
-    output_string chan ";"
+  let proc_pretty p =
+    let show_lvar v = Containers_pp.text @@ Var.to_string_il_lvar v in
+    let show_var v = Containers_pp.text @@ Var.to_string_il_rvar v in
+    let show_expr e = BasilExpr.pretty e in
+    Procedure.pretty show_lvar show_var show_expr p
+
+  let output_proc_pretty chan p =
+    output_string chan
+    @@ Containers_pp.Pretty.to_string ~width:80 (proc_pretty p)
 
   let prog_pretty (p : t) =
     let open Containers_pp in
@@ -559,11 +558,7 @@ module Program = struct
     let pretty =
       append_l ~sep:(text ";\n")
       @@ globs @ n
-      @ List.map
-          (fun (_, p) ->
-            Procedure.pretty Var.to_string_il_lvar Var.to_string_il_rvar
-              Expr.BasilExpr.to_string p)
-          (ID.Map.to_list p.procs)
+      @ List.map (fun (_, p) -> proc_pretty p) (ID.Map.to_list p.procs)
     in
     pretty
 

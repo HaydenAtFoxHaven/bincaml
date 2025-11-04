@@ -131,31 +131,6 @@ module SMTLib2 = struct
 
   let get_var v = fun s -> decl_var v s
 
-  let replace_unsupp_ops_alg
-      (e : (BasilExpr.t * Types.BType.t) BasilExpr.abstract_expr) : BasilExpr.t
-      =
-    let open AbstractExpr in
-    let open BasilExpr in
-    let orig s = fix @@ map fst s in
-    let repeat bit bits body =
-      let l = List.init bits (fun i -> bit) in
-      List.fold_left (fun acc e -> binexp ~op:`BVConcat acc e) body l
-    in
-    match e with
-    | UnaryExpr (`ZeroExtend bits, (e, t)) -> (
-        match t with
-        | Bitvector size -> repeat (bvconst @@ PrimQFBV.zero ~size) bits e
-        | _ -> failwith "type error")
-    | UnaryExpr (`SignExtend bits, (body, t)) -> (
-        match t with
-        | Bitvector size ->
-            repeat (extract ~hi_incl:size ~lo_excl:(size - 1) body) bits body
-        | _ -> failwith "type error")
-    | o -> orig o
-
-  let rewrite_smt_constructs (e : BasilExpr.t) : BasilExpr.t =
-    BasilExpr.fold_with_type replace_unsupp_ops_alg e
-
   let of_op
       (op :
         [< Ops.AllOps.const
@@ -165,6 +140,8 @@ module SMTLib2 = struct
     match op with
     | `Extract (hi, lo) ->
         list [ atom "_"; atom "extract"; of_int (hi - 1); of_int lo ]
+    | `SignExtend bits -> list [ atom "_"; atom "sign_extend"; of_int bits ]
+    | `ZeroExtend bits -> list [ atom "_"; atom "zero_extend"; of_int bits ]
     | `BVConcat -> atom "concat"
     | `Integer i -> atom (PrimInt.to_string i)
     | `Bitvector i ->
@@ -204,12 +181,9 @@ module SMTLib2 = struct
     (* TODO: bindings *)
     | Binding (_, _) -> failwith "unsupp"
 
-  let of_bexpr e =
-    let e : BasilExpr.t = rewrite_smt_constructs e in
-    (BasilExpr.cata smt_alg e) init
+  let of_bexpr e = (BasilExpr.cata smt_alg e) init
 
   let assert_bexpr e =
-    let e : BasilExpr.t = rewrite_smt_constructs e in
     let* s = BasilExpr.cata smt_alg e in
     add_assert s
 
@@ -235,7 +209,7 @@ module SMTLib2 = struct
     Iter.for_each smt (fun a -> print_endline (CCSexp.to_string a));
     [%expect
       {|
-      eq(sign_extend_10(0x7:bv3), 0x64:bv13)
+      eq(sign_extend(10, 0x7:bv3), 0x64:bv13)
       (set-logic QF_BV)
-      (assert (= (concat (concat (concat (concat (concat (concat (concat (concat (concat (concat (_ bv7 3) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) ((_ extract 2 2) (_ bv7 3))) (_ bv100 13))) |}]
+      (assert (= ((_ sign_extend 10) (_ bv7 3)) (_ bv100 13))) |}]
 end

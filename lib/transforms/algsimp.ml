@@ -13,6 +13,9 @@ let algebraic_simplifications (e : ('a * Types.BType.t) BasilExpr.abstract_expr)
   let open Option.Infix in
   let keep a = Some (fix (fst a)) in
   match e with
+  | ApplyIntrin (`BVConcat, (ApplyIntrin (`BVConcat, al), _) :: tl) ->
+      Some
+        (fix (ApplyIntrin (`BVConcat, al @ List.map (fun i -> fix (fst i)) tl)))
   | BinaryExpr (`BVADD, a, (Constant (`Bitvector i), _)) when is_zero i ->
       keep a
   | BinaryExpr (`BVSUB, a, (Constant (`Bitvector i), _)) when is_zero i ->

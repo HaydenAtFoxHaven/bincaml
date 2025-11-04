@@ -274,6 +274,40 @@ module BasilExpr = struct
 
   include R
 
+  let pretty_alg =
+    let open AbstractExpr in
+    let open Containers_pp in
+    let open Containers_pp.Infix in
+    function
+    | RVar v -> text @@ Var.to_string v
+    | Constant c -> text @@ AllOps.to_string c
+    | UnaryExpr (`ZeroExtend bits, e) ->
+        fill
+          (text "," ^ newline)
+          [ (textpf "zero_extend(%d") bits; e ^ text ")" ]
+    | UnaryExpr (`SignExtend bits, e) ->
+        fill
+          (text "," ^ newline)
+          [ (textpf "sign_extend(%d") bits; e ^ text ")" ]
+    | UnaryExpr (`Extract (hi, lo), e) ->
+        fill nil [ textpf "extract(%d,%d, " hi lo ^ e ^ text ")" ]
+    | UnaryExpr (op, e) -> text (AllOps.to_string op) ^ bracket "(" e ")"
+    | BinaryExpr (op, e, e2) ->
+        fill nil
+          [
+            text (AllOps.to_string op)
+            ^ bracket "(" (fill (text "," ^ newline) [ e; e2 ]) ")";
+          ]
+    | ApplyIntrin (op, es) ->
+        fill nil
+          [
+            text (AllOps.to_string op)
+            ^ bracket "(" (fill (text "," ^ newline) es) ")";
+          ]
+    | ApplyFun (n, es) ->
+        fill nil [ text n ^ bracket "(\n" (fill (text "," ^ newline) es) ")" ]
+    | Binding (vs, b) -> fill (text " ") vs ^ text " ::" ^ newline ^ b
+
   (* printers *)
   let print_alg =
     let open AbstractExpr in
@@ -293,6 +327,7 @@ module BasilExpr = struct
     | ApplyFun (n, es) -> n ^ "(" ^ String.concat ", " es ^ ")"
     | Binding (vs, b) -> String.concat " " vs ^ " :: " ^ b
 
+  let pretty s = cata pretty_alg s
   let to_string s = cata print_alg s
   let pp fmt s = Format.pp_print_string fmt @@ to_string s
 
@@ -353,9 +388,9 @@ module BasilExpr = struct
   let rewrite_typed_two ?(cata = cata)
       (f : (t abstract_expr * Types.BType.t) abstract_expr -> t option)
       (expr : t) =
-    let orig s = fix @@ AbstractExpr.map fst s in
     let rw_alg e =
       let unfold = AbstractExpr.map (fun (e, t) -> (unfix e, t)) e in
+      let orig s = fix @@ AbstractExpr.map fst s in
       match f unfold with Some e -> e | None -> orig e
     in
     fold_with_type ~cata rw_alg expr
@@ -369,7 +404,7 @@ module BasilExpr = struct
   let extract ~hi_incl ~lo_excl (e : t) : t =
     unexp ~op:(`Extract (hi_incl, lo_excl)) e
 
-  let concat (e : t) (f : t) : t = binexp ~op:`BVConcat e f
+  let concat (e : t) (f : t) : t = applyintrin ~op:`BVConcat [ e; f ]
   let forall ~bound p = unexp ~op:`Forall (binding bound p)
   let exists ~bound p = unexp ~op:`Exists (binding bound p)
   let boolnot e = unexp ~op:`BoolNOT e
