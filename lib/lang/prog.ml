@@ -640,7 +640,7 @@ module Program = struct
         Iter.of_list
           [
             (ProcBegin caller, Nop, ProcBegin callee);
-            (ProcReturn callee, Nop, ProcReturn caller);
+            (ProcReturn callee, Nop, ProcBegin caller);
           ]
       in
       let call_dep_edges =
