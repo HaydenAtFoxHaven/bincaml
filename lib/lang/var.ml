@@ -8,13 +8,13 @@ type declaration_scope = Local | Global [@@deriving show, eq, ord]
 module V = struct
   type t = {
     name : string;
-    typ : Types.BType.t;
+    typ : Types.t;
     pure : bool;
     scope : declaration_scope;
   }
   [@@deriving eq, ord]
 
-  let show (v : t) : string = Printf.sprintf "%s:%s" v.name (BType.show v.typ)
+  let show (v : t) : string = Printf.sprintf "%s:%s" v.name (Types.show v.typ)
   let pp fmt (b : t) : unit = Format.pp_print_string fmt (show b)
   let var name ?(pure = true) ?(scope = Local) typ = { name; typ; pure; scope }
   let hash v = Hashtbl.hash v
@@ -45,16 +45,16 @@ let is_local (v : t) = equal_declaration_scope (scope v) Local
 let is_global (v : t) = equal_declaration_scope (scope v) Global
 
 let to_string_il_rvar v =
-  if match typ v with Types.BType.Map _ -> true | _ -> false then name v
+  if match typ v with Types.Map _ -> true | _ -> false then name v
   else to_string v
 
 let to_string_il_lvar v =
-  if match typ v with Types.BType.Map _ -> true | _ -> false then name v
+  if match typ v with Types.Map _ -> true | _ -> false then name v
   else
     match scope v with Local -> "var " ^ to_string v | Global -> to_string v
 
 let to_decl_string_il v =
-  let decl_n = match typ v with Types.BType.Map _ -> "memory" | _ -> "var" in
+  let decl_n = match typ v with Types.Map _ -> "memory" | _ -> "var" in
   decl_n ^ " " ^ to_string v
 
 module Set = CCHashSet.Make (V)

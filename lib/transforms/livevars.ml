@@ -63,9 +63,9 @@ let print_live_vars_dot fmt p =
 
 let%expect_test _ =
   let open BasilExpr in
-  let v1 = Var.create "v1" (BType.bv 0x1) in
-  let v2 = Var.create "v2" (BType.bv 0x1) in
-  let v3 = Var.create "v3" (BType.bv 0x1) in
+  let v1 = Var.create "v1" (Types.bv 0x1) in
+  let v2 = Var.create "v2" (Types.bv 0x1) in
+  let v3 = Var.create "v3" (Types.bv 0x1) in
 
   let e1 =
     BasilExpr.forall

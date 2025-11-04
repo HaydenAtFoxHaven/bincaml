@@ -90,76 +90,89 @@ module Recursion (O : Fix) = struct
   type 'e abstract_expr =
     (const, Var.t, unary, binary, intrin, 'e) AbstractExpr.t
 
-  (** Recursion schemes on AbstractExpr.t for a given fix point type.
+  type 'a alg = 'a abstract_expr -> 'a
+  type 'a coalg = 'a -> 'a abstract_expr
+
+  (** {1 Recursion schemes}
+
+      Methods of traversing a generic on 'a abstract_expr for a given fix point
+      type [Fix.t].
 
       See:
 
-      https://arxiv.org/pdf/2202.13633v1
+      {:https://arxiv.org/pdf/2202.13633v1}
 
-      https://icfp24.sigplan.org/details/ocaml-2024-papers/11/Recursion-schemes-in-OCaml-An-experience-report
+      {:https://icfp24.sigplan.org/details/ocaml-2024-papers/11/Recursion-schemes-in-OCaml-An-experience-report}
   *)
 
   (** Fold an algebra e -> 'a through the expression, from leaves to nodes to
       return 'a. *)
-  let rec cata alg e = (unfix %> AbstractExpr.map (cata alg) %> alg) e
+  let rec cata (alg : 'a alg) e =
+    (unfix %> AbstractExpr.map (cata alg) %> alg) e
 
   (* ana coalg = Out◦ ◦ fmap (ana coalg) ◦ coalg *)
-  let rec ana coalg e = (coalg %> AbstractExpr.map (ana coalg) %> fix) e
+  let rec ana (coalg : 'a coalg) e =
+    (coalg %> AbstractExpr.map (ana coalg) %> fix) e
 
   (** Apply function ~f to the expression first, then pass it to alg. Its result
       is accumulated down the expression tree. *)
-  let rec map_fold ~f ~alg r e =
+  let rec map_fold ~(f : 'a -> t abstract_expr -> 'a)
+      ~(alg : 'a -> 'b abstract_expr -> 'b) r e =
     let r = f r (unfix e) in
     (unfix %> (AbstractExpr.map (map_fold ~f ~alg r) %> alg r)) e
 
-  (* hylo *)
+  (* hylo
   let rec hylo ~consume_alg ~produce_coalg e =
     consume_alg
     % AbstractExpr.map (hylo ~consume_alg ~produce_coalg)
     % produce_coalg
     @@ e
+    *)
 
-  (* mutual recursion:
-    simultaneously evaluate two catamorphisms which can depend on each-other's results.
-     *)
-  let rec mutu ?(cata = cata) alg1 alg2 =
+  (** mutual recursion: simultaneously evaluate two catamorphisms which can
+      depend on each-other's results. *)
+  let rec mutu ?(cata = cata) (alg1 : ('a * 'b) abstract_expr -> 'a)
+      (alg2 : ('a * 'b) abstract_expr -> 'b) =
     let alg x = (alg1 x, alg2 x) in
     (fst % cata alg, snd % cata alg)
 
-  (* zygomorphism;
+  (** zygomorphism;
 
-     Perform two recursion simultaneously, passing the result of the first to the second
-     *)
-  let zygo ?(cata = cata) alg1 alg2 e =
+      Perform two recursion simultaneously, passing the result of the first to
+      the second *)
+  let zygo ?(cata = cata) (alg1 : 'a alg) (alg2 : ('a * 'b) abstract_expr -> 'b)
+      e =
     snd (mutu ~cata (AbstractExpr.map fst %> alg1) alg2) e
 
   (* zygo with the order swapped *)
-  let zygo_l ?(cata = cata) alg2 alg1 =
+  let zygo_l ?(cata = cata) (alg2 : 'a alg)
+      (alg1 : ('b * 'a) abstract_expr -> 'b) =
     fst (mutu ~cata alg1 (AbstractExpr.map snd %> alg2))
 
-  let map_fold2 ~f ~alg1 ~alg2 r e =
+  let map_fold2 ~f ~(alg1 : 'a -> ('b * 'c) abstract_expr -> 'b)
+      ~(alg2 : 'c alg) r e =
     let alg r x = (alg1 r x, alg2 (AbstractExpr.map snd x)) in
     fst (fst % map_fold ~f ~alg r, snd % map_fold ~f ~alg r) e
 
   (** catamorphism that also passes the original expression through *)
-  let rec para_f alg f e =
+  let rec para_f (alg : ('a * 'b) abstract_expr -> 'b) f e =
     let p f g x = (f x, g x) in
     (alg % AbstractExpr.map (p f (para_f alg f)) % unfix) e
 
   let para alg e = para_f alg identity e
 
-  (**smart constructors **)
+  module Constructors = struct
+    let rvar v = fix (RVar v)
+    let const v = fix (Constant v)
+    let binexp ~op l r = fix (BinaryExpr (op, l, r))
+    let unexp ~op arg = fix (UnaryExpr (op, arg))
+    let fapply id params = fix (ApplyFun (id, params))
+    let binding params body = fix (Binding (params, body))
+    let applyintrin ~op params = fix (ApplyIntrin (op, params))
+    let apply_fun ~name params = fix (ApplyFun (name, params))
+  end
 
-  let rvar v = fix (RVar v)
-  let const v = fix (Constant v)
-  let binexp ~op l r = fix (BinaryExpr (op, l, r))
-  let unexp ~op arg = fix (UnaryExpr (op, arg))
-  let fapply id params = fix (ApplyFun (id, params))
-  let binding params body = fix (Binding (params, body))
-  let applyintrin ~op params = fix (ApplyIntrin (op, params))
-  let apply_fun ~name params = fix (ApplyFun (name, params))
-
-  (** dont know *)
+  (* dont know
   let bind_match ~fconst ~frvar ~funi ~fbin ~fbind ~fintrin ~ffun
       (e : 'e abstract_expr) : 'a =
     let open AbstractExpr in
@@ -171,10 +184,13 @@ module Recursion (O : Fix) = struct
     | Binding (a, b) -> fbind a b
     | ApplyIntrin (a, b) -> fintrin a b
     | ApplyFun (a, b) -> ffun a b
+    *)
 
   (**helpers*)
 
-  module VarSet = Set.Make (Var)
+  open struct
+    module VarSet = Set.Make (Var)
+  end
 
   (** get free vars of exprs *)
   let free_vars (e : t) =
@@ -274,11 +290,11 @@ module BasilExpr = struct
 
   include R
 
-  let pretty_alg =
+  let pretty_alg (e : Containers_pp.t abstract_expr) =
     let open AbstractExpr in
     let open Containers_pp in
     let open Containers_pp.Infix in
-    function
+    match e with
     | RVar v -> text @@ Var.to_string v
     | Constant c -> text @@ AllOps.to_string c
     | UnaryExpr (`ZeroExtend bits, e) ->
@@ -309,9 +325,9 @@ module BasilExpr = struct
     | Binding (vs, b) -> fill (text " ") vs ^ text " ::" ^ newline ^ b
 
   (* printers *)
-  let print_alg =
+  let print_alg (e : string abstract_expr) =
     let open AbstractExpr in
-    function
+    match e with
     | RVar v -> Var.to_string v
     | Constant c -> AllOps.to_string c
     | UnaryExpr (`ZeroExtend bits, e) ->
@@ -331,7 +347,8 @@ module BasilExpr = struct
   let to_string s = cata print_alg s
   let pp fmt s = Format.pp_print_string fmt @@ to_string s
 
-  let type_alg (e : Types.BType.t abstract_expr) =
+  (** Algebra that infers types of expressions *)
+  let type_alg (e : Types.t abstract_expr) =
     let open AbstractExpr in
     let open Ops.AllOps in
     let get_ty o =
@@ -343,21 +360,13 @@ module BasilExpr = struct
     | UnaryExpr (op, a) -> ret_type_unary op a |> get_ty
     | BinaryExpr (op, l, r) -> ret_type_bin op l r |> get_ty
     | ApplyIntrin (op, args) -> ret_type_intrin op args |> get_ty
-    | ApplyFun (a, b) -> Types.BType.Top
-    | Binding (vars, b) -> Types.BType.uncurry vars b
+    | ApplyFun (a, b) -> Types.Top
+    | Binding (vars, b) -> Types.uncurry vars b
 
   let type_of e = cata type_alg e
 
   let fold_with_type ?(cata = cata) (alg : 'e abstract_expr -> 'a) =
     zygo_l ~cata type_alg alg
-
-  (* constructor helpers *)
-  let intconst (v : PrimInt.t) : t = const (`Integer v)
-  let boolconst (v : bool) : t = const (`Bool v)
-  let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
-
-  let bv_of_int ~(size : int) (v : int) : t =
-    const (`Bitvector (PrimQFBV.of_int ~size v))
 
   let rewrite ?(cata = cata) ~(rw_fun : t abstract_expr -> t option) (expr : t)
       =
@@ -367,8 +376,8 @@ module BasilExpr = struct
     in
     cata rw_alg expr
 
-  let rewrite_typed ?(cata = cata)
-      (f : (t * Types.BType.t) abstract_expr -> t option) (expr : t) =
+  let rewrite_typed ?(cata = cata) (f : (t * Types.t) abstract_expr -> t option)
+      (expr : t) =
     let rw_alg e =
       let orig s = fix @@ AbstractExpr.map fst s in
       match f e with Some e -> e | None -> orig e
@@ -376,8 +385,8 @@ module BasilExpr = struct
     fold_with_type rw_alg expr
 
   (** typed expression rewriter *)
-  let rewrite_typed ?(cata = cata)
-      (f : (t * Types.BType.t) abstract_expr -> t option) (expr : t) =
+  let rewrite_typed ?(cata = cata) (f : (t * Types.t) abstract_expr -> t option)
+      (expr : t) =
     let rw_alg e =
       let orig s = fix @@ AbstractExpr.map fst s in
       match f e with Some e -> e | None -> orig e
@@ -386,14 +395,17 @@ module BasilExpr = struct
 
   (** typed rewriter that expands two layers deep into the expression *)
   let rewrite_typed_two ?(cata = cata)
-      (f : (t abstract_expr * Types.BType.t) abstract_expr -> t option)
-      (expr : t) =
+      (f : (t abstract_expr * Types.t) abstract_expr -> t option) (expr : t) =
     let rw_alg e =
       let unfold = AbstractExpr.map (fun (e, t) -> (unfix e, t)) e in
       let orig s = fix @@ AbstractExpr.map fst s in
       match f unfold with Some e -> e | None -> orig e
     in
     fold_with_type ~cata rw_alg expr
+
+  (** {2 Smart Constructors} *)
+
+  include R.Constructors
 
   let zero_extend ~n_prefix_bits (e : t) : t =
     unexp ~op:(`ZeroExtend n_prefix_bits) e
@@ -408,6 +420,12 @@ module BasilExpr = struct
   let forall ~bound p = unexp ~op:`Forall (binding bound p)
   let exists ~bound p = unexp ~op:`Exists (binding bound p)
   let boolnot e = unexp ~op:`BoolNOT e
+  let intconst (v : PrimInt.t) : t = const (`Integer v)
+  let boolconst (v : bool) : t = const (`Bool v)
+  let bvconst (v : PrimQFBV.t) : t = const (`Bitvector v)
+
+  let bv_of_int ~(size : int) (v : int) : t =
+    const (`Bitvector (PrimQFBV.of_int ~size v))
 
   (*
   module Memoiser = Fix.Memoize.ForHashedType (struct

@@ -9,7 +9,7 @@ let z_signed_extract = checked_extract Z.signed_extract
 module PrimInt = struct
   type t = Z.t
 
-  let typ i = Types.BType.Integer
+  let typ i = Types.Integer
   let pp = Z.pp_print
   let show i = Z.to_string i
   let to_string i = show i
@@ -23,7 +23,7 @@ module PrimQFBV = struct
 
   type t = { w : int; v : Z.t }
 
-  let typ i = Types.BType.Bitvector i.w
+  let typ i = Types.Bitvector i.w
   let show (b : t) = Printf.sprintf "0x%s:bv%d" (Z.format "%x" @@ b.v) b.w
   let to_string v = show v
   let pp fmt b = Format.pp_print_string fmt (show b)

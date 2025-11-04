@@ -83,17 +83,17 @@ module SMTLib2 = struct
     let commands = List.rev b.commands |> List.to_iter in
     return (preamble <+> decls <+> commands)
 
-  let rec of_typ (ty : Types.BType.t) =
+  let rec of_typ (ty : Types.t) =
     match ty with
     | Integer -> (atom "Int", LSet.singleton Int)
     | Boolean -> (atom "Bool", LSet.singleton Prop)
     | Bitvector i ->
         ( list [ atom "_"; atom "BitVec"; atom @@ Int.to_string i ],
           LSet.singleton BV )
-    | Types.BType.Unit -> (atom "Unit", LSet.singleton DT)
-    | Types.BType.Top -> (atom "Any", LSet.singleton DT)
-    | Types.BType.Nothing -> (atom "Nothing", LSet.singleton DT)
-    | Types.BType.Map (l, r) ->
+    | Types.Unit -> (atom "Unit", LSet.singleton DT)
+    | Types.Top -> (atom "Any", LSet.singleton DT)
+    | Types.Nothing -> (atom "Nothing", LSet.singleton DT)
+    | Types.Map (l, r) ->
         let tl, ll = of_typ l in
         let tr, lr = of_typ r in
         let log = LSet.union (LSet.singleton Array) (LSet.union ll lr) in

@@ -104,7 +104,7 @@ let%expect_test _ =
   let e =
     binexp ~op:`BVMUL
       (binexp ~op:`BVADD ten ten)
-      (BasilExpr.rvar (Var.create "beans" Types.BType.(Bitvector 10)))
+      (BasilExpr.rvar (Var.create "beans" Types.(Bitvector 10)))
   in
   print_endline (to_string e);
   let r = to_string @@ partial_eval_expr e in

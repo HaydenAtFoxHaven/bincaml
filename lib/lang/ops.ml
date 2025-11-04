@@ -218,12 +218,12 @@ module AllOps = struct
   [@@deriving show { with_path = false }, eq, ord]
 
   type op_fun_type =
-    | Fun of { args : Types.BType.t list; ret : Types.BType.t }
+    | Fun of { args : Types.t list; ret : Types.t }
     (* list of expected type equalities *)
-    | Conflict of (Types.BType.t * string) list
+    | Conflict of (Types.t * string) list
 
   let ret_type_const (o : const) =
-    let open Types.BType in
+    let open Types in
     let return ret = Fun { args = []; ret } in
     match o with
     | `Bool _ -> return Boolean
@@ -231,7 +231,7 @@ module AllOps = struct
     | `Bitvector v -> return (Bitvector (PrimQFBV.size v))
 
   let ret_type_unary (o : unary) a =
-    let open Types.BType in
+    let open Types in
     let return ret = Fun { args = [ a ]; ret } in
     match o with
     | `SignExtend sz -> (
@@ -253,7 +253,7 @@ module AllOps = struct
     | `Extract (hi, lo) -> return (Bitvector (hi - lo))
 
   let ret_type_bin (o : binary) l r =
-    let open Types.BType in
+    let open Types in
     let return ret = Fun { args = [ l; r ]; ret } in
     match o with
     | `EQ | `NEQ | `BVULT | `BVULE | `BVSLT | `BVSLE | `INTLT | `IMPLIES
@@ -265,7 +265,7 @@ module AllOps = struct
         return l
 
   let ret_type_intrin (o : intrin) args =
-    let open Types.BType in
+    let open Types in
     let return ret = Fun { args; ret } in
     match o with
     | `BVADD -> return @@ List.hd args
@@ -284,7 +284,7 @@ module AllOps = struct
         else
           let w =
             List.fold_left
-              (fun (a : int) (i : Types.BType.t) ->
+              (fun (a : int) (i : Types.t) ->
                 match i with
                 | Bitvector i -> a + i
                 | _ -> failwith "unreachable")

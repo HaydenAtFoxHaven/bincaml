@@ -1,7 +1,6 @@
 (** Loads a initial IR from the semi-concrete AST *)
 
 open Lang
-open Types
 open Value
 open Expr
 open Containers
@@ -33,7 +32,7 @@ module BasilASTLoader = struct
   let failure x = failwith "Undefined case." (* x discarded *)
   let stripquote s = String.sub s 1 (String.length s - 2)
 
-  let rec transBVTYPE (x : bVTYPE) : BType.t =
+  let rec transBVTYPE (x : bVTYPE) : Types.t =
     match x with
     | BVTYPE (_, string) ->
         let sz =
@@ -203,10 +202,10 @@ module BasilASTLoader = struct
         prog
     | _ -> prog
 
-  and transMapType (x : mapType) : BType.t =
+  and transMapType (x : mapType) : Types.t =
     match x with MapType1 (t0, t1) -> Map (transType t0, transType t1)
 
-  and transType (x : typeT) : BType.t =
+  and transType (x : typeT) : Types.t =
     match x with
     | TypeIntType inttype -> Integer
     | TypeBoolType booltype -> Boolean
