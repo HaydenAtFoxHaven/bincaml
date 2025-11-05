@@ -11,7 +11,6 @@ let algebraic_simplifications
   let open Value in
   let open BasilExpr in
   let open PrimQFBV in
-  let open Option.Infix in
   let keep a = Some (fix (fst a)) in
   match e with
   | ApplyIntrin (`BVConcat, (ApplyIntrin (`BVConcat, al), _) :: tl) ->
