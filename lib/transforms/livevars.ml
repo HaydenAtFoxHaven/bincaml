@@ -32,24 +32,48 @@ let tf_block (init : V.t) (b : (Var.t, BasilExpr.t) Block.t) =
 
 module G = Procedure.G
 
+module WTO = Graph.WeakTopological.Make (struct
+  open G
+
+  type t = G.t
+
+  module V = G.V
+
+  let iter_succ = G.iter_pred
+  let iter_vertex = G.iter_vertex
+end)
+
 module LV =
-  Graph.Fixpoint.Make
+  Graph.ChaoticIteration.Make
     (G)
     (struct
       type vertex = G.E.vertex
       type edge = G.E.t
       type g = G.t
-      type data = V.t
+      type t = V.t
 
-      let direction = Graph.Fixpoint.Backward
       let equal = V.equal
       let join = V.union
+      let widening a b = V.union a b
 
       let analyze (e : edge) d =
         match G.E.label e with Block b -> tf_block d b | _ -> d
     end)
 
-let run (p : Program.proc) = LV.analyze (function e -> V.empty) p.graph
+let run (p : Program.proc) =
+  let wto =
+    Trace.with_span ~__FILE__ ~__LINE__ "WTO" @@ fun _ ->
+    WTO.recursive_scc p.graph Procedure.Vert.Return
+  in
+  let r =
+    Trace.with_span ~__FILE__ ~__LINE__ "live-vars-analysis" @@ fun _ ->
+    LV.recurse p.graph wto
+      (fun v -> V.empty)
+      (Graph.ChaoticIteration.Predicate (fun _ -> false))
+      10
+  in
+  fun v -> LV.M.find v r
+
 let label (r : G.vertex -> V.t) (v : G.vertex) = show_v (r v)
 let print_g res = Viscfg.dot_labels (fun v -> Some (label res v))
 
@@ -218,7 +242,7 @@ module DSE = struct
     Vector.of_list (snd r)
 
   let sane_transform (p : Program.proc) =
-    let live = LV.analyze (function e -> V.empty) p.graph in
+    let live = run p in
     let blocks = Procedure.blocks_to_list p in
     List.iter
       (function
