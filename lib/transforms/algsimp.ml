@@ -4,7 +4,9 @@ open Value
 open Ops
 open Containers
 
-let algebraic_simplifications (e : ('a * Types.t) BasilExpr.abstract_expr) =
+let algebraic_simplifications
+    (e :
+      (BasilExpr.t BasilExpr.abstract_expr * Types.t) BasilExpr.abstract_expr) =
   let open AbstractExpr in
   let open Value in
   let open BasilExpr in
