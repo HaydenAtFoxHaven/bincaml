@@ -23,6 +23,7 @@
  (synopsis "A short synopsis")
  (description "A longer description")
  (depends
+   menhir
    ocaml
    zarith
    fix
@@ -34,6 +35,8 @@
    ppx_deriving
    ocamlgraph
    qcheck-core
+   intPQueue
+   cmdliner
    (ppx_expect_nobase (>= "0.17.2.2"))
    )
  (tags

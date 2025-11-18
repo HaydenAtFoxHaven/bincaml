@@ -4,8 +4,8 @@
  (public_name ocaml_of_basil.transforms)
  (name transforms)
  (flags -w -27)
- (modules algsimp cf_tx livevars cleanup_cfg)
- (libraries lang zarith fix ocamlgraph containers containers-data iter containers.pp trace)
+ (modules algsimp cf_tx livevars cleanup_cfg ide)
+ (libraries intPQueue lang zarith fix ocamlgraph containers containers-data iter containers.pp trace)
  (inline_tests)
  (preprocess
   (pps
