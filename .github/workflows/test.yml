@@ -12,7 +12,6 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-latest
           - macos-latest
         compiler_version:
           - 5.3.0
@@ -30,22 +29,35 @@ jobs:
           ocaml-compiler: ${{ matrix.compiler_version }}
 
       - run: opam install . --deps-only --with-test
-
       - run: opam exec -- dune build --ignore-promoted-rules
+      - run: opam exec -- dune runtest --ignore-promoted-rules
 
-  test:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+        compiler_version:
+          - 5.3.0
+          - 4.14.2
+
+    runs-on: ${{ matrix.os }}
+
     steps:
       - name: Checkout tree
         uses: actions/checkout@v5
+
       - name: Set-up OCaml
         uses: ocaml/setup-ocaml@v3
         with:
-          ocaml-compiler: 5.3.0
+          ocaml-compiler: ${{ matrix.compiler_version }}
+
       - run: opam install . --deps-only --with-test
       - run: opam exec -- dune build --ignore-promoted-rules
       - run: sudo apt-get install cvc5 -y
       - run: opam exec -- dune runtest --ignore-promoted-rules
+
 
   lint-doc:
     runs-on: ubuntu-latest
