@@ -1,9 +1,8 @@
 (** Loads a initial IR from the semi-concrete AST *)
 
+open Util.Common
 open Lang
-open Value
 open Expr
-open Containers
 
 type load_st = {
   prog : Program.t;
@@ -13,8 +12,6 @@ type load_st = {
 }
 
 open struct
-  module StringMap = Map.Make (String)
-
   let map_prog f l = { l with prog = f l.prog }
 end
 
@@ -548,7 +545,7 @@ module BasilASTLoader = struct
     | Expr_Literal (Value_BV (BVVal1 (intval, BVType1 bvtype))) ->
         BasilExpr.bvconst
           (match transBVTYPE bvtype with
-          | Bitvector size -> PrimQFBV.create ~size (transIntVal intval)
+          | Bitvector size -> Bitvec.create ~size (transIntVal intval)
           | _ -> failwith "unreachable")
     | Expr_Literal (Value_Int intval) -> BasilExpr.intconst (transIntVal intval)
     | Expr_Literal Value_True -> BasilExpr.boolconst true

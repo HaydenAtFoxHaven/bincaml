@@ -1,8 +1,8 @@
+(** Intraprocedural analyses for programs not in ssa form. *)
+
 open Lang
 open Common
 open Containers
-
-(** Intraprocedural analyses for programs not in ssa form. *)
 
 module type ValDomain = sig
   val name : string
@@ -40,7 +40,7 @@ let tf_forwards st (read_st : 'a -> Var.t -> 'b) (s : Program.stmt)
   let open AbstractExpr in
   let alg e = match e with RVar e -> (read_st st) e | o -> eval o in
   tf_stmt
-  @@ Stmt.map ~f_rvar:(read_st st) ~f_lvar:identity
+  @@ Stmt.map ~f_rvar:(read_st st) ~f_lvar:id
        ~f_expr:(BasilExpr.fold_with_type alg)
        s
 

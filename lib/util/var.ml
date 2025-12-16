@@ -1,7 +1,4 @@
-open Common
-open ContainersLabels
-open Value
-open Types
+open Containers
 
 type declaration_scope = Local | Global [@@deriving show, eq, ord]
 
@@ -20,27 +17,28 @@ module V = struct
   let hash v = Hashtbl.hash v
 end
 
+(** variables are interned *)
+
 module H = Fix.HashCons.ForHashedTypeWeak (V)
 
 type t = V.t Fix.HashCons.cell
+
+let create name ?(pure = true) ?(scope = Local) typ =
+  H.make { name; typ; pure; scope }
 
 let show v =
   Printf.sprintf "{id=%d ; data=%s}" (Fix.HashCons.id v)
     (V.show (Fix.HashCons.data v))
 
+let equal (a : t) (b : t) = Fix.HashCons.equal a b
+let compare (a : t) (b : t) = Fix.HashCons.compare a b
 let pp fmt v = Format.pp_print_string fmt (show v)
 let to_string v = V.show (Fix.HashCons.data v)
 let pretty v = Containers_pp.text (to_string v)
-
-let create name ?(pure = true) ?(scope = Local) typ =
-  H.make { name; typ; pure; scope }
-
 let name (e : t) = (Fix.HashCons.data e).name
 let scope (e : t) = (Fix.HashCons.data e).scope
 let typ (e : t) = (Fix.HashCons.data e).typ
 let pure (e : t) = (Fix.HashCons.data e).pure
-let compare (a : t) (b : t) = Fix.HashCons.compare a b
-let equal (a : t) (b : t) = Fix.HashCons.equal a b
 let hash (a : t) = Fix.HashCons.hash a
 let is_local (v : t) = equal_declaration_scope (scope v) Local
 let is_global (v : t) = equal_declaration_scope (scope v) Global
@@ -52,11 +50,6 @@ let to_string_il_lvar v =
 let to_decl_string_il v =
   let decl_n = match typ v with Types.Map _ -> "memory" | _ -> "var" in
   decl_n ^ " " ^ to_string v
-
-module Set = CCHashSet.Make (V)
-(**FIXME: these do not use the hash-consign*)
-
-module Bindings = CCHashTrie.Make (V)
 
 module Decls = struct
   include Hashtbl
@@ -70,7 +63,7 @@ module Decls = struct
     let d = find_opt m (name v) in
     match d with
     | Some e when equal e v -> ()
-    | Some e ->
+    | Some _ ->
         failwith @@ "Already declared diff var with that name: " ^ name v
     | None -> Hashtbl.add m (name v) v
 end
