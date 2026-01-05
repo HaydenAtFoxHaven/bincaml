@@ -2,13 +2,20 @@
  (name expr_gen)
  (modules expr_gen)
  (flags -w -27)
- (libraries qcheck-core containers containers.unix lang bincaml))
+ (libraries
+  qcheck-core
+  (re_export containers)
+  (re_export iter)
+  (re_export containers.unix)
+  (re_export bincaml.ast)
+  (re_export bincaml.util)
+  zarith))
 
 (executable
  (name expr_eval_qcheck)
  (modules expr_eval_qcheck)
  (flags -w -27)
- (libraries str expr_gen alcotest qcheck-alcotest))
+ (libraries str expr_gen alcotest qcheck-alcotest qcheck-core))
 
 (rule
  (alias runtest)
@@ -31,3 +38,31 @@
  (inline_tests)
  (preprocess
   (pps ppx_expect_nobase)))
+
+(library
+ (name pagetable_spec)
+ (modules pagetable_spec)
+ (libraries
+  iter
+  zarith
+  bincaml.ast
+  bincaml.util
+  qcheck-stm.stm
+  qcheck-core
+  qcheck-stm.sequential)
+ (flags -w +27)
+ (preprocess
+  (pps
+   ppx_deriving.show
+   ppx_deriving.eq
+   ppx_deriving.ord
+   ppx_deriving.map
+   ppx_deriving.iter
+   ppx_deriving.fold
+   ppx_deriving.enum)))
+
+(executable
+ (name pagetable_qcheck)
+ (modules pagetable_qcheck)
+ (flags -w -27)
+ (libraries pagetable_spec qcheck-core.runner qcheck-stm.sequential))

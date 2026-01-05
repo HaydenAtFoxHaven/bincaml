@@ -15,7 +15,6 @@
   program)
  (flags -w -27) ; unused var
  (libraries
-  util
   zarith
   fix
   ocamlgraph
@@ -24,7 +23,8 @@
   iter
   containers.pp
   fmt
-  trace)
+  trace
+  bincaml.util)
  (inline_tests)
  (preprocess
   (pps
