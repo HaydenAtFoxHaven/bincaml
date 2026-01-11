@@ -1,18 +1,9 @@
 (library
- (public_name bincaml.transforms)
- (name transforms)
+ (public_name bincaml.analysis)
+ (name analysis)
  (flags -w -27)
- (modules
-  ssa
-  algsimp
-  cf_tx
-  spec_modifies
-  livevars
-  cleanup_cfg
-  ide
-  may_read_uninit)
+ (modules dataflow_graph intra_analysis defuse_bool lattice_types)
  (libraries
-  bincaml.analysis
   patricia-tree
   loader
   intPQueue
@@ -24,8 +15,7 @@
   containers-data
   iter
   containers.pp
-  trace
-  bincaml.util)
+  trace)
  (inline_tests)
  (preprocess
   (pps

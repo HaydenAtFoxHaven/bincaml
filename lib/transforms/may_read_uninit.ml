@@ -10,6 +10,7 @@ BOT -> readuninit -> write
 *)
 open Bincaml_util.Common
 open Lang
+open Analysis
 
 module ReadUninit = struct
   let name = "read-uninitialised-analysis"
@@ -31,7 +32,7 @@ module ReadUninit = struct
 end
 
 module ReadUninitAnalysis = struct
-  include Intra_analysis.MapState (ReadUninit)
+  include Analysis.Intra_analysis.MapState (ReadUninit)
 
   let name = "intra-read-uninit-analysis"
 
@@ -52,7 +53,7 @@ module ReadUninitAnalysis = struct
     | Bot -> Write
 
   let read_uninit_vars st =
-    M.to_iter st
+    to_iter st
     |> Iter.filter_map (fun (i, v) ->
         match v with ReadUninit.ReadUninit -> Some i | _ -> None)
 
@@ -61,7 +62,7 @@ module ReadUninitAnalysis = struct
   let show_short st =
     read_uninit_vars st |> Iter.to_string ~sep:", " Var.to_string
 
-  let tf_stmt st stmt =
+  let transfer st stmt =
     let st =
       Stmt.free_vars_iter stmt
       |> Iter.map (fun (v : Var.t) -> (v, read_var v st))
@@ -137,7 +138,7 @@ let%expect_test "fold_block" =
   let _ =
     Block.fold_forwards
       ~f:(fun a i ->
-        let r = ReadUninitAnalysis.tf_stmt a i in
+        let r = ReadUninitAnalysis.transfer a i in
         print_endline @@ ReadUninitAnalysis.show_full r;
         r)
       ~phi:(fun a i -> a)
@@ -150,4 +151,5 @@ let%expect_test "fold_block" =
     $stack->RU, R0_in->RU, R31_in->RU, load45_1->W, R1_4->W
     $stack->RU, R0_in->RU, R31_in->RU, load45_1->W, R1_4->W, $mem->RU
     $stack->RU, R0_in->RU, R31_in->RU, load45_1->W, R1_4->W, $mem->RU, load46_1->W
-    $stack->RU, R0_in->RU, R31_in->RU, load45_1->W, R1_4->W, $mem->RU, load46_1->W, R0_10->W |}]
+    $stack->RU, R0_in->RU, R31_in->RU, load45_1->W, R1_4->W, $mem->RU, load46_1->W, R0_10->W
+    |}]

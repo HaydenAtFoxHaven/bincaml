@@ -3,35 +3,51 @@
 open Lang
 open Common
 open Containers
+open Lattice_types
 
-module type ValDomain = sig
-  val name : string
-
+module EvalExpr (V : ValueAbstraction) = struct
   type t
 
-  val show : t -> string
-  val bottom : t
-  val join : t -> t -> t
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val widening : t -> t -> t
-  (*val eval : ('c, 'v, 'e, 'f, 'g, t * Types.t) Expr.AbstractExpr.t -> t*)
+  let eval read expr =
+    let open Expr.AbstractExpr in
+    let eval_alg e =
+      match e with
+      | RVar v -> read v
+      | Constant c -> V.eval_const c
+      | UnaryExpr (op, e) -> V.eval_unop op e
+      | BinaryExpr (op, a, b) -> V.eval_binop op a b
+      | ApplyIntrin (op, es) -> V.eval_intrin op es
+      | _ -> failwith "unsupported"
+    in
+    V.E.cata eval_alg expr
 end
 
-module type StateDomain = sig
-  type edge = Procedure.G.edge
+module EvalValueAbstraction
+    (V : ValueAbstraction with module E = Expr.BasilExpr) =
+struct
   type t
-  type val_t
-  type key_t
 
-  val show : t -> string
-  val bottom : t
-  val join : t -> t -> t
-  val equal : t -> t -> bool
-  val compare : t -> t -> int
-  val read : key_t -> t -> val_t
-  val update : key_t -> val_t -> t -> t
-  val widening : t -> t -> t
+  module Eval = EvalExpr (V)
+
+  let eval read expr = Eval.eval read expr
+end
+
+module EvalStmt
+    (V : ValueAbstraction)
+    (S : StateAbstraction with type val_t = V.t with type key_t = V.E.var) =
+struct
+  type t
+
+  module EV = EvalExpr (V)
+
+  let stmt_eval_fwd stmt dom =
+    Stmt.map ~f_lvar:id
+      ~f_rvar:(fun v -> S.read v dom)
+      ~f_expr:(EV.eval (fun v -> S.read v dom))
+      stmt
+
+  let stmt_eval_rev stmt dom =
+    Stmt.map ~f_lvar:(fun v -> S.read v dom) ~f_rvar:id ~f_expr:id stmt
 end
 
 let tf_forwards st (read_st : 'a -> Var.t -> 'b) (s : Program.stmt)
@@ -44,37 +60,35 @@ let tf_forwards st (read_st : 'a -> Var.t -> 'b) (s : Program.stmt)
        ~f_expr:(BasilExpr.fold_with_type alg)
        s
 
-module MapState (V : ValDomain) = struct
-  type edge = Procedure.G.edge
+module MapState (V : Lattice) = struct
+  open struct
+    module M = PatriciaTree.MakeMap (Var)
+  end
 
-  module M = Map.Make (Var)
+  module V = V
 
   type val_t = V.t
   type key_t = Var.t
   type t = val_t M.t
 
+  let name = V.name ^ "maplattice"
+  let to_iter m = Iter.from_iter (fun f -> M.iter (fun k v -> f (k, v)) m)
+
   let show m =
-    M.to_iter m
+    Iter.from_iter (fun f -> M.iter (fun k v -> f (k, v)) m)
     |> Iter.to_string ~sep:", " (fun (k, v) ->
         Printf.sprintf "%s->%s" (Var.name k) (V.show v))
 
   let bottom = M.empty
-  let join a b = M.union (fun v a b -> Some (V.join a b)) a b
-  let equal a b = M.equal V.equal a b
-  let compare a b = M.compare V.compare a b
-  let read (v : Var.t) m = M.get_or ~default:V.bottom v m
+  let join a b = M.idempotent_union (fun v a b -> V.join a b) a b
+  let equal a b = M.reflexive_equal V.equal a b
+  let compare a b = M.reflexive_compare V.compare a b
+  let read (v : Var.t) m = M.find_opt v m |> Option.get_or ~default:V.bottom
   let update k v m = M.add k v m
   let widening a b = join a b
 end
 
-module type Analysis = sig
-  include StateDomain
-
-  val name : string
-  val tf_stmt : t -> Program.stmt -> t
-end
-
-module Forwards (D : Analysis) = struct
+module Forwards (D : Domain) = struct
   module AnalyseBlock = struct
     include D
 
@@ -85,7 +99,7 @@ module Forwards (D : Analysis) = struct
       | Jump -> s
       | Block b -> begin
           assert (List.is_empty b.phis);
-          Block.fold_forwards ~phi:(fun a _ -> a) ~f:D.tf_stmt s b
+          Block.fold_forwards ~phi:(fun a _ -> a) ~f:D.transfer s b
         end
   end
 
@@ -116,7 +130,7 @@ module Forwards (D : Analysis) = struct
     Option.iter to_dot (Procedure.graph p)
 end
 
-module Backwards (D : Analysis) = struct
+module Backwards (D : Domain) = struct
   module AnalyseBlock = struct
     include D
 
@@ -127,7 +141,7 @@ module Backwards (D : Analysis) = struct
       | Jump -> s
       | Block b -> begin
           assert (List.is_empty b.phis);
-          Block.fold_backwards ~phi:(fun a _ -> a) ~f:D.tf_stmt ~init:s b
+          Block.fold_backwards ~phi:(fun a _ -> a) ~f:D.transfer ~init:s b
         end
   end
 
