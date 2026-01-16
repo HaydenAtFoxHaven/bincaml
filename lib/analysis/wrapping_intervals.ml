@@ -3,6 +3,7 @@ open Bincaml_util.Common
 module WrappingIntervalsLattice = struct
   let name = "wrappingIntervals"
 
+  (* TODO: Store widths for all variants :( *)
   type t = Top | Interval of { lower : Bitvec.t; upper : Bitvec.t } | Bot
   [@@deriving eq, show { with_path = false }]
 
@@ -10,10 +11,15 @@ module WrappingIntervalsLattice = struct
     Bitvec.size_is_equal lower upper;
     Interval { lower; upper }
 
+  let umin width = Bitvec.zero ~size:width
+  let umax width = Bitvec.ones ~size:width
+  let smin width = Bitvec.(concat (ones ~size:1) (zero ~size:(width - 1)))
+  let smax width = Bitvec.(zero_extend ~extension:1 (ones ~size:(width - 1)))
+  let sp width = interval (umax width) (umin width)
+  let np width = interval (smax width) (smin width)
   let bottom = Bot
   let pretty t = Containers_pp.text (show t)
 
-  (*  TODO: Rewrite as compare_size to avoid storing widths for Top and Bot *)
   let cardinality t =
     match t with
     | Bot -> Z.of_int 0
@@ -163,6 +169,60 @@ module WrappingIntervalsLattice = struct
                      |> add (of_int ~size:width 1))
                      (mul al (of_int ~size:width 2))))
           else Top
+
+  let intersect a b =
+    match (a, b) with
+    | Bot, Bot -> []
+    | a, b when equal a b -> [ b ]
+    | Top, _ -> [ b ]
+    | _, Top -> [ a ]
+    | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+      ->
+        let al_mem = member b al in
+        let au_mem = member b au in
+        let bl_mem = member a bl in
+        let bu_mem = member a bu in
+        let a_in_b = al_mem && au_mem in
+        let b_in_a = bl_mem && bu_mem in
+        if a_in_b && b_in_a then [ interval al bu; interval au bl ]
+        else if a_in_b then [ a ]
+        else if b_in_a then [ b ]
+        else if al_mem && (not au_mem) && (not bl_mem) && bu_mem then
+          [ interval al bu ]
+        else if (not al_mem) && au_mem && bl_mem && not bu_mem then
+          [ interval au bl ]
+        else []
+    | _, _ -> []
+
+  let nsplit t =
+    match t with
+    | Bot -> []
+    | Top ->
+        [
+          interval (umin width) (smax width); interval (smin width) (umax width);
+        ]
+    | Interval { lower; upper } ->
+        let width = Bitvec.size lower in
+        let np = np width in
+        if compare np t <= 0 then
+          [ interval lower (smax width); interval (smin width) upper ]
+        else [ t ]
+
+  let ssplit t =
+    match t with
+    | Bot -> []
+    | Top ->
+        [
+          interval (umin width) (smax width); interval (smin width) (umax width);
+        ]
+    | Interval { lower; upper } ->
+        let width = Bitvec.size lower in
+        let sp = sp width in
+        if compare sp t <= 0 then
+          [ interval lower (umax width); interval (umin width) upper ]
+        else [ t ]
+
+  let cut t = List.concat_map ssplit (nsplit t)
 end
 
 module WrappingIntervalsValueAbstraction = struct
