@@ -24,6 +24,15 @@ module WrappingIntervalsLattice = struct
           |> add (of_int ~size:(size lower) 1)
           |> to_unsigned_bigint)
 
+  let compare_size a b =
+    match (a, b) with
+    | a, b when equal a b -> 0
+    | Top, _ -> 1
+    | Bot, _ -> -1
+    | _, Top -> -1
+    | _, Bot -> 1
+    | Interval _, Interval _ -> Z.compare (cardinality a) (cardinality b)
+
   let complement t =
     match t with
     | Bot -> Top
@@ -78,7 +87,42 @@ module WrappingIntervalsLattice = struct
             else interval bl au
       | _, _ -> failwith "unreachable"
 
-  (* TODO: Implement join for multiple intervals (see APLAS12 Fig. 3) *)
+  (* Join for multiple intervals to increase precision (join is not monotone) *)
+  let lub (ints : t list) =
+    let bigger a b = if compare_size a b < 0 then b else a in
+    let gap a b =
+      match (a, b) with
+      | Interval { upper = au; _ }, Interval { lower = bl; _ }
+        when (not (member b au)) && not (member a bl) ->
+          complement (interval bl au)
+      | _, _ -> Bot
+    in
+    (* APLAS12 mentions "last cases are omitted", does not specify which cases. *)
+    let extend a b = join a b in
+    let sorted =
+      List.sort
+        (fun a b ->
+          match (a, b) with
+          | Interval { lower = al; _ }, Interval { lower = bl; _ } ->
+              Bitvec.compare al bl
+          | _, _ -> compare a b)
+        ints
+    in
+    let f1 =
+      List.fold_right
+        (fun t acc ->
+          match t with
+          | Interval { lower; upper } when Bitvec.ule upper lower ->
+              extend acc t
+          | _ -> acc)
+        sorted Bot
+    in
+    let g, f =
+      List.fold_right
+        (fun t (g, f) -> (bigger g (gap f t), extend f t))
+        sorted (Bot, f1)
+    in
+    complement (bigger g (complement f))
 
   let widening a b =
     match (a, b) with
