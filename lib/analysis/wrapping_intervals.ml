@@ -3,13 +3,25 @@ open Bincaml_util.Common
 module WrappingIntervalsLattice = struct
   let name = "wrappingIntervals"
 
-  (* TODO: Store widths for all variants :( *)
-  type t = Top | Interval of { lower : Bitvec.t; upper : Bitvec.t } | Bot
+  type l = Top | Interval of { lower : Bitvec.t; upper : Bitvec.t } | Bot
   [@@deriving eq, show { with_path = false }]
+
+  type t = { w : int option; v : l } [@@deriving show { with_path = false }]
+
+  let equal s t = equal_l s.v t.v
 
   let interval lower upper =
     Bitvec.size_is_equal lower upper;
-    Interval { lower; upper }
+    { w = Some (Bitvec.size lower); v = Interval { lower; upper } }
+
+  let infer { w = w1; v = a } { w = w2; v = b } =
+    match (w1, w2) with
+    | Some w1, Some w2 ->
+        assert (w1 = w2);
+        ({ w = Some w1; v = a }, { w = Some w2; v = b })
+    | Some w1, None -> ({ w = Some w1; v = a }, { w = Some w1; v = b })
+    | None, Some w2 -> ({ w = Some w2; v = a }, { w = Some w2; v = b })
+    | None, None -> ({ w = None; v = a }, { w = None; v = b })
 
   let umin width = Bitvec.zero ~size:width
   let umax width = Bitvec.ones ~size:width
@@ -17,32 +29,35 @@ module WrappingIntervalsLattice = struct
   let smax width = Bitvec.(zero_extend ~extension:1 (ones ~size:(width - 1)))
   let sp width = interval (umax width) (umin width)
   let np width = interval (smax width) (smin width)
-  let bottom = Bot
+  let top = { w = None; v = Top }
+  let bottom = { w = None; v = Bot }
   let pretty t = Containers_pp.text (show t)
 
-  let cardinality t =
-    match t with
+  let cardinality { w; v } =
+    match v with
     | Bot -> Z.of_int 0
-    | Top -> Z.pow (Z.of_int 2) 64
+    | Top -> (
+        match w with
+        | Some w -> Z.pow (Z.of_int 2) w
+        | None -> failwith "Cannot determine cardinality for Top without width")
     | Interval { lower; upper } ->
-        Bitvec.(
-          sub upper lower
-          |> add (of_int ~size:(size lower) 1)
-          |> to_unsigned_bigint)
+        Bitvec.(sub upper lower |> to_unsigned_bigint |> Z.add (Z.of_int 1))
 
-  let compare_size a b =
+  let compare_size s t =
+    let { v = a; _ } = s in
+    let { v = b; _ } = t in
     match (a, b) with
-    | a, b when equal a b -> 0
+    | a, b when equal_l a b -> 0
     | Top, _ -> 1
     | Bot, _ -> -1
     | _, Top -> -1
     | _, Bot -> 1
-    | Interval _, Interval _ -> Z.compare (cardinality a) (cardinality b)
+    | Interval _, Interval _ -> Z.compare (cardinality s) (cardinality t)
 
-  let complement t =
-    match t with
-    | Bot -> Top
-    | Top -> Bot
+  let complement { w; v } =
+    match v with
+    | Bot -> { w; v = Top }
+    | Top -> { w; v = Bot }
     | Interval { lower; upper } ->
         let new_lower = Bitvec.(add upper (of_int ~size:(size upper) 1)) in
         let new_upper = Bitvec.(sub lower (of_int ~size:(size lower) 1)) in
@@ -54,9 +69,9 @@ module WrappingIntervalsLattice = struct
     | Top -> true
     | Interval { lower; upper } -> Bitvec.(ule (sub e lower) (sub upper lower))
 
-  let compare a b =
+  let compare_l a b =
     match (a, b) with
-    | a, b when equal a b -> 0
+    | a, b when equal_l a b -> 0
     | Top, _ -> 1
     | Bot, _ -> -1
     | _, Top -> -1
@@ -69,9 +84,14 @@ module WrappingIntervalsLattice = struct
         then -1
         else 1
 
-  let join a b =
-    if compare a b <= 0 then b
-    else if compare a b >= 0 then a
+  let compare s t = compare_l s.v t.v
+
+  let join s t =
+    let s, t = infer s t in
+    let { v = a; _ } = s in
+    let { v = b; _ } = t in
+    if compare s t <= 0 then t
+    else if compare t s <= 0 then s
     else
       match (a, b) with
       | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
@@ -80,7 +100,8 @@ module WrappingIntervalsLattice = struct
           let au_mem = member b au in
           let bl_mem = member a bl in
           let bu_mem = member a bu in
-          if al_mem && au_mem && bl_mem && bu_mem then Top
+          if al_mem && au_mem && bl_mem && bu_mem then
+            { w = Some (Bitvec.size al); v = Top }
           else if au_mem && bl_mem then interval al bu
           else if al_mem && bu_mem then interval bl au
           else
@@ -97,54 +118,58 @@ module WrappingIntervalsLattice = struct
   let lub (ints : t list) =
     let bigger a b = if compare_size a b < 0 then b else a in
     let gap a b =
-      match (a, b) with
+      match (a.v, b.v) with
       | Interval { upper = au; _ }, Interval { lower = bl; _ }
-        when (not (member b au)) && not (member a bl) ->
+        when (not (member b.v au)) && not (member a.v bl) ->
           complement (interval bl au)
-      | _, _ -> Bot
+      | _, _ -> bottom
     in
     (* APLAS12 mentions "last cases are omitted", does not specify which cases. *)
     let extend a b = join a b in
     let sorted =
       List.sort
-        (fun a b ->
-          match (a, b) with
+        (fun s t ->
+          match (s.v, t.v) with
           | Interval { lower = al; _ }, Interval { lower = bl; _ } ->
               Bitvec.compare al bl
-          | _, _ -> compare a b)
+          | _, _ -> compare_l s.v t.v)
         ints
     in
     let f1 =
-      List.fold_right
-        (fun t acc ->
-          match t with
+      List.fold_left
+        (fun acc t ->
+          match t.v with
           | Interval { lower; upper } when Bitvec.ule upper lower ->
               extend acc t
           | _ -> acc)
-        sorted Bot
+        bottom sorted
     in
     let g, f =
-      List.fold_right
-        (fun t (g, f) -> (bigger g (gap f t), extend f t))
-        sorted (Bot, f1)
+      List.fold_left
+        (fun (g, f) t -> (bigger g (gap f t), extend f t))
+        (bottom, f1) sorted
     in
     complement (bigger g (complement f))
 
-  let widening a b =
+  let widening s t =
+    let s, t = infer s t in
+    let { v = a; _ } = s in
+    let { v = b; _ } = t in
     match (a, b) with
-    | a, Bot -> a
-    | Bot, b -> b
-    | a, Top -> a
-    | Top, b -> b
+    | _, Bot -> s
+    | Bot, _ -> t
+    | _, Top -> s
+    | Top, _ -> t
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         Bitvec.size_is_equal al bl;
         Bitvec.size_is_equal au bu;
         let width = Bitvec.size al in
-        if compare b a <= 0 then a
-        else if Z.geq (cardinality a) (Z.pow (Z.of_int 2) 64) then Top
+        if compare t s <= 0 then s
+        else if Z.geq (cardinality s) (Z.pow (Z.of_int 2) width) then
+          { w = Some width; v = Top }
         else
-          let joined = join a b in
+          let joined = join s t in
           if equal joined (interval al bu) then
             join joined
               (interval al
@@ -160,7 +185,7 @@ module WrappingIntervalsLattice = struct
                      (of_int ~size:width 1))
                  au)
           else if member b al && member b au then
-            join b
+            join t
               (interval bl
                  Bitvec.(
                    sub
@@ -168,14 +193,19 @@ module WrappingIntervalsLattice = struct
                      |> add (mul au (of_int ~size:width 2))
                      |> add (of_int ~size:width 1))
                      (mul al (of_int ~size:width 2))))
-          else Top
+          else { w = Some width; v = Top }
 
-  let intersect a b =
+  let intersect s t =
+    let s, t = infer s t in
+    let { v = a; _ } = s in
+    let { v = b; _ } = t in
     match (a, b) with
     | Bot, Bot -> []
-    | a, b when equal a b -> [ b ]
-    | Top, _ -> [ b ]
-    | _, Top -> [ a ]
+    | Top, Bot -> []
+    | Bot, Top -> []
+    | Top, _ -> [ t ]
+    | _, Top -> [ s ]
+    | a, b when equal_l a b -> [ t ]
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         let al_mem = member b al in
@@ -185,8 +215,8 @@ module WrappingIntervalsLattice = struct
         let a_in_b = al_mem && au_mem in
         let b_in_a = bl_mem && bu_mem in
         if a_in_b && b_in_a then [ interval al bu; interval au bl ]
-        else if a_in_b then [ a ]
-        else if b_in_a then [ b ]
+        else if a_in_b then [ s ]
+        else if b_in_a then [ t ]
         else if al_mem && (not au_mem) && (not bl_mem) && bu_mem then
           [ interval al bu ]
         else if (not al_mem) && au_mem && bl_mem && not bu_mem then
@@ -195,12 +225,12 @@ module WrappingIntervalsLattice = struct
     | _, _ -> []
 
   let nsplit t =
-    match t with
+    match t.v with
     | Bot -> []
-    | Top ->
-        [
-          interval (umin width) (smax width); interval (smin width) (umax width);
-        ]
+    | Top -> (
+        match t.w with
+        | Some w -> [ interval (umin w) (smax w); interval (smin w) (umax w) ]
+        | None -> failwith "Cannot determine nsplit for Top without width")
     | Interval { lower; upper } ->
         let width = Bitvec.size lower in
         let np = np width in
@@ -209,12 +239,12 @@ module WrappingIntervalsLattice = struct
         else [ t ]
 
   let ssplit t =
-    match t with
+    match t.v with
     | Bot -> []
-    | Top ->
-        [
-          interval (umin width) (smax width); interval (smin width) (umax width);
-        ]
+    | Top -> (
+        match t.w with
+        | Some w -> [ interval (umin w) (smax w); interval (smin w) (umax w) ]
+        | None -> failwith "Cannot determine nsplit for Top without width")
     | Interval { lower; upper } ->
         let width = Bitvec.size lower in
         let sp = sp width in
@@ -228,10 +258,10 @@ end
 module WrappingIntervalsValueAbstraction = struct
   include WrappingIntervalsLattice
 
-  let eval_const op = Top
-  let eval_unop op a = Top
-  let eval_binop op a b = Top
-  let eval_intrin op args = Top
+  let eval_const op = top
+  let eval_unop op a = top
+  let eval_binop op a b = top
+  let eval_intrin op args = top
 end
 
 module StateAbstraction = Intra_analysis.MapState (WrappingIntervalsLattice)
@@ -240,3 +270,6 @@ module WrappingIntervalsValueAbstractionBasil = struct
   include WrappingIntervalsValueAbstraction
   module E = Lang.Expr.BasilExpr
 end
+
+include
+  Dataflow_graph.EasyForwardAnalysisPack (WrappingIntervalsValueAbstractionBasil)
