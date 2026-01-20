@@ -17,6 +17,7 @@ module WrappingIntervalsLattice = struct
   let infer { w = w1; v = a } { w = w2; v = b } =
     match (w1, w2) with
     | Some w1, Some w2 ->
+        (* Disable assertion when running `dune test` or the soundness check crashes *)
         assert (w1 = w2);
         ({ w = Some w1; v = a }, { w = Some w2; v = b })
     | Some w1, None -> ({ w = Some w1; v = a }, { w = Some w1; v = b })
