@@ -43,16 +43,7 @@ module WrappingIntervalsLattice = struct
     | Interval { lower; upper } ->
         Bitvec.(sub upper lower |> to_unsigned_bigint |> Z.add (Z.of_int 1))
 
-  let compare_size s t =
-    let { v = a; _ } = s in
-    let { v = b; _ } = t in
-    match (a, b) with
-    | a, b when equal_l a b -> 0
-    | Top, _ -> 1
-    | Bot, _ -> -1
-    | _, Top -> -1
-    | _, Bot -> 1
-    | Interval _, Interval _ -> Z.compare (cardinality s) (cardinality t)
+  let compare_size s t = Z.compare (cardinality s) (cardinality t)
 
   let complement { w; v } =
     match v with
@@ -255,13 +246,94 @@ module WrappingIntervalsLattice = struct
   let cut t = List.concat_map ssplit (nsplit t)
 end
 
-module WrappingIntervalsValueAbstraction = struct
+module WrappingIntervalsLatticeOps = struct
   include WrappingIntervalsLattice
 
-  let eval_const op = top
-  let eval_unop op a = top
-  let eval_binop op a b = top
-  let eval_intrin op args = top
+  (*
+  TODO: 
+  - Unary:
+    - [x] Negate
+    - [x] Not
+    - [ ] Sign extend
+    - [ ] Zero extend
+    - [ ] Extract 
+  - Binary:
+    - [x] Addition
+    - [x] Subtraction
+    - [ ] Multiplication
+    - [ ] Bitwise Or/And/Xor
+    - [ ] Left Shift
+    - [ ] Logical Right Shift
+    - [ ] Arithmetic Right Shift
+    - [ ] (Un)signed Div and Modulo (see Crab for impl, paper does not provide)
+  - 
+  *)
+
+  let bind1 f t =
+    {
+      w = t.w;
+      v =
+        (match t.v with
+        | Bot -> Bot
+        | Top -> Top
+        | Interval { lower; upper } -> f lower upper);
+    }
+
+  let neg =
+    bind1 (fun l u -> Interval { lower = Bitvec.neg u; upper = Bitvec.neg l })
+
+  let bitnot =
+    bind1 (fun l u ->
+        Interval { lower = Bitvec.bitnot u; upper = Bitvec.bitnot l })
+
+  let add s t =
+    let top = infer s top |> snd in
+    match (s.v, t.v) with
+    | Bot, Bot -> s
+    | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+      ->
+        if Z.(leq (add (cardinality s) (cardinality t)) (cardinality top)) then
+          interval (Bitvec.add al bl) (Bitvec.add au bu)
+        else top
+    | _, _ -> top
+
+  let sub s t =
+    let top = infer s top |> snd in
+    match (s.v, t.v) with
+    | Bot, Bot -> s
+    | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+      ->
+        if Z.(leq (add (cardinality s) (cardinality t)) (cardinality top)) then
+          interval (Bitvec.sub al bu) (Bitvec.sub au bl)
+        else top
+    | _, _ -> top
+end
+
+module WrappingIntervalsValueAbstraction = struct
+  include WrappingIntervalsLattice
+  include WrappingIntervalsLatticeOps
+
+  let eval_const (op : Lang.Ops.AllOps.const) =
+    match op with
+    | `Bool _ -> { w = Some 1; v = Top }
+    | `Integer _ -> top
+    | `Bitvector bv ->
+        if Bitvec.size bv = 0 then { w = Some 0; v = Top } else interval bv bv
+
+  let eval_unop (op : Lang.Ops.AllOps.unary) a =
+    match op with
+    | `BVNEG -> neg a
+    | `BVNOT -> bitnot a
+    | _ -> infer a top |> snd
+
+  let eval_binop (op : Lang.Ops.AllOps.binary) a b =
+    let a, b = infer a b in
+    match op with
+    | `BVADD -> add a b
+    | `BVSUB -> sub a b
+    | _ -> infer a top |> snd
+
+  let eval_intrin (op : Lang.Ops.AllOps.intrin) args = top
 end
 
 module StateAbstraction = Intra_analysis.MapState (WrappingIntervalsLattice)
