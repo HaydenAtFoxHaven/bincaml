@@ -273,7 +273,7 @@ module WrappingIntervalsLatticeOps = struct
     - [ ] Left Shift
     - [ ] Logical Right Shift
     - [ ] Arithmetic Right Shift
-    - [ ] (Un)signed Div and Modulo (see Crab for impl, paper does not provide)
+    - [x] (Un)signed Div (see Crab for impl, paper does not provide)
   - 
   *)
 
@@ -375,12 +375,88 @@ module WrappingIntervalsLatticeOps = struct
       in
       intersect umul smul
     in
-    let prod =
-      List.concat_map
-        (fun a -> List.concat_map (fun b -> rusmul a b) (cut t))
-        (cut s)
+    lub
+      (List.concat_map
+         (fun a -> List.concat_map (fun b -> rusmul a b) (cut t))
+         (cut s))
+
+  (* Division implementation derived from Crab *)
+  let trim_zeroes t =
+    let w =
+      match t.w with
+      | Some w -> w
+      | None -> failwith "Cannot trim zeroes without known width"
     in
-    lub prod
+    let zero = Bitvec.zero ~size:w in
+    match t.v with
+    | Bot -> []
+    | Top -> [ interval (Bitvec.of_int ~size:w 1) (umax w) ]
+    | Interval { lower; upper } ->
+        if Bitvec.equal lower zero && Bitvec.equal upper zero then []
+        else if Bitvec.equal lower zero then
+          [ interval (Bitvec.of_int ~size:w 1) upper ]
+        else if Bitvec.equal upper zero then [ interval lower (umax w) ]
+        else if member t.v zero then
+          [ interval lower (umax w); interval (Bitvec.of_int ~size:w 1) upper ]
+        else [ t ]
+
+  let udiv s t =
+    let divide s t =
+      let top = infer s top |> snd in
+      match (s.v, t.v) with
+      | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+        ->
+          interval (Bitvec.udiv al bu) (Bitvec.sdiv au bl)
+      | _, _ -> top
+    in
+    lub
+      (List.concat_map
+         (fun a ->
+           List.concat_map
+             (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
+             (nsplit t))
+         (nsplit s))
+
+  let sdiv s t =
+    let divide s t =
+      let top = infer s top |> snd in
+
+      match (s.v, t.v) with
+      | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+        -> (
+          let w =
+            match s.w with
+            | Some w -> w
+            | None -> failwith "Cannot signed divide without known width"
+          in
+          let msb_hi b =
+            Bitvec.(equal (extract ~hi:w ~lo:(w - 1) b) (ones ~size:1))
+          in
+          let ( = ) = Bitvec.equal in
+          let smin, neg1 = (smin w, umax w) in
+          match (msb_hi al, msb_hi bl) with
+          | true, true
+            when not ((au = smin && bl = neg1) || (al = smin && bu = neg1)) ->
+              interval (Bitvec.sdiv au bl) (Bitvec.sdiv al bu)
+          | false, false
+            when not ((al = smin && bu = neg1) || (au = smin && bl = neg1)) ->
+              interval (Bitvec.sdiv al bu) (Bitvec.sdiv au bl)
+          | true, false
+            when not ((al = smin && bl = neg1) || (au = smin && bu = neg1)) ->
+              interval (Bitvec.sdiv al bl) (Bitvec.sdiv au bu)
+          | false, true
+            when not ((au = smin && bu = neg1) && al = smin && bl = neg1) ->
+              interval (Bitvec.sdiv au bu) (Bitvec.sdiv al bl)
+          | _, _ -> top)
+      | _, _ -> top
+    in
+    lub
+      (List.concat_map
+         (fun a ->
+           List.concat_map
+             (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
+             (cut t))
+         (cut s))
 end
 
 module WrappingIntervalsValueAbstraction = struct
@@ -406,6 +482,8 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVADD -> add a b
     | `BVSUB -> sub a b
     | `BVMUL -> mul a b
+    | `BVUDIV -> udiv a b
+    | `BVSDIV -> sdiv a b
     | _ -> infer a top |> snd
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) args = top
