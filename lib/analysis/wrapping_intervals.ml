@@ -12,7 +12,13 @@ module WrappingIntervalsLattice = struct
 
   let interval lower upper =
     Bitvec.size_is_equal lower upper;
-    { w = Some (Bitvec.size lower); v = Interval { lower; upper } }
+    {
+      w = Some (Bitvec.size lower);
+      v =
+        (if Bitvec.(equal lower (add upper (of_int ~size:(size upper) 1))) then
+           Top
+         else Interval { lower; upper });
+    }
 
   let infer { w = w1; v = a } { w = w2; v = b } =
     match (w1, w2) with
@@ -59,7 +65,10 @@ module WrappingIntervalsLattice = struct
     match t with
     | Bot -> false
     | Top -> true
-    | Interval { lower; upper } -> Bitvec.(ule (sub e lower) (sub upper lower))
+    | Interval { lower; upper } ->
+        Bitvec.size_is_equal lower e;
+        Bitvec.size_is_equal upper e;
+        Bitvec.(ule (sub e lower) (sub upper lower))
 
   let compare_l a b =
     match (a, b) with
@@ -192,12 +201,11 @@ module WrappingIntervalsLattice = struct
     let { v = a; _ } = s in
     let { v = b; _ } = t in
     match (a, b) with
-    | Bot, Bot -> []
-    | Top, Bot -> []
-    | Bot, Top -> []
+    | Bot, _ -> []
+    | _, Bot -> []
     | Top, _ -> [ t ]
-    | _, Top -> [ s ]
     | a, b when equal_l a b -> [ t ]
+    | _, Top -> [ s ]
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         let al_mem = member b al in
@@ -206,15 +214,14 @@ module WrappingIntervalsLattice = struct
         let bu_mem = member a bu in
         let a_in_b = al_mem && au_mem in
         let b_in_a = bl_mem && bu_mem in
-        if a_in_b && b_in_a then [ interval al bu; interval au bl ]
+        if a_in_b && b_in_a then [ interval al bu; interval bl au ]
         else if a_in_b then [ s ]
         else if b_in_a then [ t ]
         else if al_mem && (not au_mem) && (not bl_mem) && bu_mem then
           [ interval al bu ]
         else if (not al_mem) && au_mem && bl_mem && not bu_mem then
-          [ interval au bl ]
+          [ interval bl au ]
         else []
-    | _, _ -> []
 
   let nsplit t =
     match t.v with
@@ -261,7 +268,7 @@ module WrappingIntervalsLatticeOps = struct
   - Binary:
     - [x] Addition
     - [x] Subtraction
-    - [ ] Multiplication
+    - [x] Multiplication
     - [ ] Bitwise Or/And/Xor
     - [ ] Left Shift
     - [ ] Logical Right Shift
@@ -290,7 +297,8 @@ module WrappingIntervalsLatticeOps = struct
   let add s t =
     let top = infer s top |> snd in
     match (s.v, t.v) with
-    | Bot, Bot -> s
+    | Bot, _ -> s
+    | _, Bot -> t
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if Z.(leq (add (cardinality s) (cardinality t)) (cardinality top)) then
@@ -301,13 +309,78 @@ module WrappingIntervalsLatticeOps = struct
   let sub s t =
     let top = infer s top |> snd in
     match (s.v, t.v) with
-    | Bot, Bot -> s
+    | Bot, _ -> s
+    | _, Bot -> t
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if Z.(leq (add (cardinality s) (cardinality t)) (cardinality top)) then
           interval (Bitvec.sub al bu) (Bitvec.sub au bl)
         else top
     | _, _ -> top
+
+  let mul s t =
+    let rusmul s t =
+      let top = infer s top |> snd in
+      let w =
+        match s.w with
+        | Some w -> w
+        | None -> failwith "Cannot multiply without known width"
+      in
+      let umul =
+        match (s.v, t.v) with
+        | ( Interval { lower = al; upper = au },
+            Interval { lower = bl; upper = bu } ) ->
+            let cond =
+              let al = Bitvec.to_unsigned_bigint al in
+              let au = Bitvec.to_unsigned_bigint au in
+              let bl = Bitvec.to_unsigned_bigint bl in
+              let bu = Bitvec.to_unsigned_bigint bu in
+              Z.(lt (sub (mul au bu) (mul al bl)) (pow (of_int 2) w))
+            in
+            if cond then interval (Bitvec.mul al bl) (Bitvec.mul au bu) else top
+        | _, _ -> top
+      in
+      let smul =
+        match (s.v, t.v) with
+        | ( Interval { lower = al; upper = au },
+            Interval { lower = bl; upper = bu } ) ->
+            let msb_hi b =
+              Bitvec.(equal (extract ~hi:w ~lo:(w - 1) b) (ones ~size:1))
+            in
+            let cond (a, b) (c, d) =
+              let a = Bitvec.to_unsigned_bigint a in
+              let b = Bitvec.to_unsigned_bigint b in
+              let c = Bitvec.to_unsigned_bigint c in
+              let d = Bitvec.to_unsigned_bigint d in
+              Z.(lt (sub (mul a b) (mul c d)) (pow (of_int 2) w))
+            in
+            if
+              msb_hi al && msb_hi au && msb_hi bl && msb_hi bu
+              && cond (au, bu) (al, bl)
+            then interval (Bitvec.mul al bl) (Bitvec.mul au bu)
+            else if
+              msb_hi al && msb_hi au
+              && (not (msb_hi bl))
+              && (not (msb_hi bu))
+              && cond (au, bl) (al, bu)
+            then interval (Bitvec.mul al bu) (Bitvec.mul au bl)
+            else if
+              (not (msb_hi al))
+              && (not (msb_hi au))
+              && msb_hi bl && msb_hi bu
+              && cond (al, bu) (au, bl)
+            then interval (Bitvec.mul au bl) (Bitvec.mul al bu)
+            else top
+        | _, _ -> top
+      in
+      intersect umul smul
+    in
+    let prod =
+      List.concat_map
+        (fun a -> List.concat_map (fun b -> rusmul a b) (cut t))
+        (cut s)
+    in
+    lub prod
 end
 
 module WrappingIntervalsValueAbstraction = struct
@@ -332,6 +405,7 @@ module WrappingIntervalsValueAbstraction = struct
     match op with
     | `BVADD -> add a b
     | `BVSUB -> sub a b
+    | `BVMUL -> mul a b
     | _ -> infer a top |> snd
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) args = top

@@ -1,9 +1,12 @@
 open Bincaml_util.Common
-open Analysis.Wrapping_intervals.WrappingIntervalsLattice
+open Analysis.Wrapping_intervals
+open WrappingIntervalsLattice
 
 let dbg x =
   print_endline (show x);
   x
+
+let dbg_list = List.map dbg
 
 let%test_unit "cardinality" =
   let ( = ) a b = Z.equal a (Z.of_int b) in
@@ -81,6 +84,12 @@ let%test_unit "intersect" =
   assert (List.is_empty (intersect bottom bottom));
   assert (List.is_empty (intersect top bottom));
   assert (intersect top (iv 1 2) = [ iv 1 2 ]);
-  assert (intersect (iv 0 4) (iv 2 1) = [ iv 0 1; iv 4 2 ]);
+  assert (List.mem (iv 0 1) (intersect (iv 0 4) (iv 3 1)));
+  assert (List.mem (iv 3 4) (intersect (iv 0 4) (iv 3 1)));
   assert (intersect (iv 0 8) (iv 3 6) = [ iv 3 6 ]);
-  assert (intersect (iv 3 7) (iv 6 11) = [ iv 7 6 ])
+  assert (intersect (iv 3 7) (iv 6 11) = [ iv 6 7 ])
+
+let%test_unit "mul" =
+  let ( = ) = equal in
+  let iv a b = interval (Bitvec.of_int ~size:4 a) (Bitvec.of_int ~size:4 b) in
+  assert (WrappingIntervalsValueAbstraction.mul (iv 15 9) (iv 0 1) = iv 15 9)
