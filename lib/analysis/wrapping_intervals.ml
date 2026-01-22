@@ -269,7 +269,7 @@ module WrappingIntervalsLatticeOps = struct
     - [x] Addition
     - [x] Subtraction
     - [x] Multiplication
-    - [ ] Bitwise Or/And/Xor
+    - [x] Bitwise Or/And/Xor
     - [ ] Left Shift
     - [ ] Logical Right Shift
     - [ ] Arithmetic Right Shift
@@ -457,6 +457,136 @@ module WrappingIntervalsLatticeOps = struct
              (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
              (cut t))
          (cut s))
+
+  let bitlogop min max s t =
+    let pre s t =
+      match (s.v, t.v) with
+      | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+        ->
+          interval (min (al, au) (bl, bu)) (max (al, au) (bl, bu))
+      | _, _ -> infer s top |> snd
+    in
+    lub
+      (List.concat_map
+         (fun a -> List.map (fun b -> pre a b) (ssplit t))
+         (ssplit s))
+
+  let bitor =
+    let min_or (al, au) (bl, bu) =
+      let rec min_or_aux m =
+        (* Lazy evaluation trick *)
+        let recurse _ = min_or_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
+
+        if Bitvec.is_zero m then Bitvec.bitor al bl
+        else if Bitvec.(is_nonzero (bitand (bitnot al) bl |> bitand m)) then
+          let temp = Bitvec.(bitor al m |> bitand (neg m)) in
+          if Bitvec.ule temp au then Bitvec.bitor temp bl else recurse ()
+        else if Bitvec.(is_nonzero (bitand al (bitnot bl) |> bitand m)) then
+          let temp = Bitvec.(bitor bl m |> bitand (neg m)) in
+          if Bitvec.ule temp bu then Bitvec.bitor al temp else recurse ()
+        else recurse ()
+      in
+      let init = smin (Bitvec.size al) in
+      min_or_aux init
+    in
+
+    let max_or (al, au) (bl, bu) =
+      let rec max_or_aux m =
+        let one = Bitvec.(of_int ~size:(size m) 1) in
+        let recurse _ = max_or_aux Bitvec.(lshr m one) in
+
+        if Bitvec.is_zero m then Bitvec.bitor au bu
+        else if Bitvec.(is_nonzero (bitand au bu |> bitand m)) then
+          let tempau = Bitvec.(bitor (sub au m) (sub m one)) in
+          let tempbu = Bitvec.(bitor (sub bu m) (sub m one)) in
+          if Bitvec.uge tempau al then Bitvec.bitor tempau bu
+          else if Bitvec.uge tempbu bl then Bitvec.bitor au tempbu
+          else recurse ()
+        else recurse ()
+      in
+      let init = smin (Bitvec.size al) in
+      max_or_aux init
+    in
+    bitlogop min_or max_or
+
+  let bitand =
+    let min_and (al, au) (bl, bu) =
+      let rec min_and_aux m =
+        let recurse _ = min_and_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
+
+        if Bitvec.is_zero m then Bitvec.bitand al bl
+        else if Bitvec.(is_nonzero (bitand (bitnot al) (bitnot bl) |> bitand m))
+        then
+          let tempal = Bitvec.(bitand (bitor al m) (neg m)) in
+          let tempbl = Bitvec.(bitand (bitor bl m) (neg m)) in
+          if Bitvec.uge tempal au then Bitvec.bitand tempal bl
+          else if Bitvec.uge tempbl bu then Bitvec.bitand al tempbl
+          else recurse ()
+        else recurse ()
+      in
+      let init = smin (Bitvec.size al) in
+      min_and_aux init
+    in
+
+    let max_and (al, au) (bl, bu) =
+      let rec max_and_aux m =
+        let one = Bitvec.(of_int ~size:(size m) 1) in
+        let recurse _ = max_and_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
+        if Bitvec.is_zero m then Bitvec.bitand au bu
+        else if Bitvec.(is_nonzero (bitand au (bitnot bl) |> bitand m)) then
+          let temp = Bitvec.(bitor (bitand au (bitnot m)) (sub m one)) in
+          if Bitvec.uge temp al then Bitvec.bitand temp bu else recurse ()
+        else if Bitvec.(is_nonzero (bitand (bitnot au) bu |> bitand m)) then
+          let temp = Bitvec.(bitor (bitand bu (bitnot m)) (sub m one)) in
+          if Bitvec.uge temp bl then Bitvec.bitand au temp else recurse ()
+        else recurse ()
+      in
+      let init = smin (Bitvec.size al) in
+      max_and_aux init
+    in
+    bitlogop min_and max_and
+
+  let bitxor =
+    let min_xor (al, au) (bl, bu) =
+      let rec min_xor_aux m (al, au) (bl, bu) =
+        let recurse = min_xor_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
+
+        if Bitvec.is_zero m then Bitvec.bitxor al bl
+        else if Bitvec.(is_nonzero (bitand (bitnot al) bl |> bitand m)) then
+          let temp = Bitvec.(bitor al m |> bitand (neg m)) in
+          let al = if Bitvec.ule temp au then Bitvec.bitor temp bl else al in
+          recurse (al, au) (bl, bu)
+        else if Bitvec.(is_nonzero (bitand al (bitnot bl) |> bitand m)) then
+          let temp = Bitvec.(bitor bl m |> bitand (neg m)) in
+          let bl = if Bitvec.ule temp bu then Bitvec.bitor al temp else bl in
+          recurse (al, au) (bl, bu)
+        else recurse (al, au) (bl, bu)
+      in
+      let init = smin (Bitvec.size al) in
+      min_xor_aux init (al, au) (bl, bu)
+    in
+
+    let max_xor (al, au) (bl, bu) =
+      let rec max_xor_aux m (al, au) (bl, bu) =
+        let one = Bitvec.(of_int ~size:(size m) 1) in
+        let recurse = max_xor_aux Bitvec.(lshr m one) in
+
+        if Bitvec.is_zero m then Bitvec.bitxor au bu
+        else if Bitvec.(is_nonzero (bitand au bu |> bitand m)) then
+          let tempau = Bitvec.(bitor (sub au m) (sub m one)) in
+          let tempbu = Bitvec.(bitor (sub bu m) (sub m one)) in
+          let au, bu =
+            if Bitvec.uge tempau al then (tempau, bu)
+            else if Bitvec.uge tempbu bl then (au, tempbu)
+            else (au, bu)
+          in
+          recurse (al, au) (bl, bu)
+        else recurse (al, au) (bl, bu)
+      in
+      let init = smin (Bitvec.size al) in
+      max_xor_aux init (al, au) (bl, bu)
+    in
+    bitlogop min_xor max_xor
 end
 
 module WrappingIntervalsValueAbstraction = struct
@@ -484,6 +614,9 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVMUL -> mul a b
     | `BVUDIV -> udiv a b
     | `BVSDIV -> sdiv a b
+    | `BVOR -> bitxor a b
+    | `BVAND -> bitand a b
+    | `BVXOR -> bitxor a b
     | _ -> infer a top |> snd
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) args = top
