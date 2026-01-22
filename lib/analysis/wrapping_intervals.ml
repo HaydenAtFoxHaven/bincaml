@@ -262,8 +262,8 @@ module WrappingIntervalsLatticeOps = struct
   - Unary:
     - [x] Negate
     - [x] Not
-    - [ ] Sign extend
-    - [ ] Zero extend
+    - [x] Sign extend
+    - [x] Zero extend
     - [ ] Extract 
   - Binary:
     - [x] Addition
@@ -293,6 +293,32 @@ module WrappingIntervalsLatticeOps = struct
   let bitnot =
     bind1 (fun l u ->
         Interval { lower = Bitvec.bitnot u; upper = Bitvec.bitnot l })
+
+  let sign_extend t k =
+    List.filter_map
+      (fun t ->
+        match t.v with
+        | Interval { lower; upper } ->
+            Some
+              (interval
+                 (Bitvec.sign_extend ~extension:k lower)
+                 (Bitvec.sign_extend ~extension:k upper))
+        | _ -> None)
+      (nsplit t)
+    |> lub
+
+  let zero_extend t k =
+    List.filter_map
+      (fun t ->
+        match t.v with
+        | Interval { lower; upper } ->
+            Some
+              (interval
+                 (Bitvec.zero_extend ~extension:k lower)
+                 (Bitvec.zero_extend ~extension:k upper))
+        | _ -> None)
+      (ssplit t)
+    |> lub
 
   let add s t =
     let top = infer s top |> snd in
@@ -604,6 +630,8 @@ module WrappingIntervalsValueAbstraction = struct
     match op with
     | `BVNEG -> neg a
     | `BVNOT -> bitnot a
+    | `ZeroExtend k -> zero_extend a k
+    | `SignExtend k -> sign_extend a k
     | _ -> infer a top |> snd
 
   let eval_binop (op : Lang.Ops.AllOps.binary) a b =
