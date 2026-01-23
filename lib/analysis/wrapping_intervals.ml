@@ -50,6 +50,12 @@ module WrappingIntervalsLattice = struct
     | Interval { lower; upper } ->
         Bitvec.(sub upper lower |> to_unsigned_bigint |> Z.add (Z.of_int 1))
 
+  let is_singleton { w; v } =
+    match v with
+    | Bot | Top -> None
+    | Interval { lower; upper } ->
+        if Bitvec.equal lower upper then Some lower else None
+
   let compare_size s t = Z.compare (cardinality s) (cardinality t)
 
   let complement { w; v } =
@@ -264,17 +270,16 @@ module WrappingIntervalsLatticeOps = struct
     - [x] Not
     - [x] Sign extend
     - [x] Zero extend
-    - [ ] Extract 
+    - [x] Extract 
   - Binary:
     - [x] Addition
     - [x] Subtraction
     - [x] Multiplication
     - [x] Bitwise Or/And/Xor
-    - [ ] Left Shift
-    - [ ] Logical Right Shift
-    - [ ] Arithmetic Right Shift
+    - [x] Left Shift
+    - [x] Logical Right Shift
+    - [x] Arithmetic Right Shift
     - [x] (Un)signed Div (see Crab for impl, paper does not provide)
-  - 
   *)
 
   let bind1 f t =
@@ -613,6 +618,119 @@ module WrappingIntervalsLatticeOps = struct
       max_xor_aux init (al, au) (bl, bu)
     in
     bitlogop min_xor max_xor
+
+  let truncate t k =
+    match t.v with
+    | Bot -> { w = Some k; v = Bot }
+    | Top -> { w = Some k; v = Top }
+    | Interval { lower; upper } ->
+        let w =
+          match t.w with
+          | Some w -> w
+          | None -> failwith "Cannot truncate without known width"
+        in
+        let truncl = Bitvec.extract ~hi:k ~lo:0 lower in
+        let truncu = Bitvec.extract ~hi:k ~lo:0 upper in
+        let shiftl = Bitvec.(ashr lower (of_int ~size:w k)) in
+        let shiftu = Bitvec.(ashr upper (of_int ~size:w k)) in
+        if
+          Bitvec.(
+            (equal shiftl shiftu && ule truncl truncu)
+            || equal (add shiftl (of_int ~size:w 1)) shiftu
+               && ugt truncl truncu)
+        then interval truncl truncu
+        else { w = Some k; v = Top }
+
+  let shl t k =
+    let shl_const t k =
+      if equal_l t.v Bot then t
+      else
+        let w =
+          match t.w with
+          | Some w -> w
+          | None -> failwith "Cannot shift left without known width"
+        in
+        match (truncate t (w - k)).v with
+        | Interval { lower; upper } ->
+            let lower = Bitvec.zero_extend ~extension:(w - k) lower in
+            let upper = Bitvec.zero_extend ~extension:(w - k) upper in
+            interval
+              Bitvec.(shl lower (of_int ~size:w k))
+              Bitvec.(shl upper (of_int ~size:w k))
+        | _ ->
+            interval (Bitvec.zero ~size:w)
+              Bitvec.(concat (ones ~size:(w - k)) (zero ~size:k))
+    in
+    match is_singleton k with
+    | Some k -> shl_const t (Bitvec.to_unsigned_bigint k |> Z.to_int)
+    | None -> { w = t.w; v = Top }
+
+  let lshr t k =
+    let lshr_const t k =
+      if equal_l t.v Bot then t
+      else
+        let w =
+          match t.w with
+          | Some w -> w
+          | None -> failwith "Cannot logical shift right without known width"
+        in
+        let fallback =
+          interval (Bitvec.zero ~size:w)
+            Bitvec.(concat (zero ~size:k) (ones ~size:(w - k)))
+        in
+        if compare (sp w) t <= 0 then fallback
+        else
+          match t.v with
+          | Interval { lower; upper } ->
+              interval
+                Bitvec.(lshr lower (of_int ~size:w k))
+                Bitvec.(lshr upper (of_int ~size:w k))
+          | _ -> fallback
+    in
+    match is_singleton k with
+    | Some k -> lshr_const t (Bitvec.to_unsigned_bigint k |> Z.to_int)
+    | None -> { w = t.w; v = Top }
+
+  let ashr t k =
+    let ashr_const t k =
+      if equal_l t.v Bot then t
+      else
+        let w =
+          match t.w with
+          | Some w -> w
+          | None -> failwith "Cannot arithmetic shift right without known width"
+        in
+        let fallback =
+          interval
+            Bitvec.(concat (ones ~size:k) (zero ~size:(w - k)))
+            Bitvec.(concat (zero ~size:k) (ones ~size:(w - k)))
+        in
+        if compare (np w) t <= 0 then fallback
+        else
+          match t.v with
+          | Interval { lower; upper } ->
+              interval
+                Bitvec.(ashr lower (of_int ~size:w k))
+                Bitvec.(ashr upper (of_int ~size:w k))
+          | _ -> fallback
+    in
+    match is_singleton k with
+    | Some k -> ashr_const t (Bitvec.to_unsigned_bigint k |> Z.to_int)
+    | None -> { w = t.w; v = Top }
+
+  let extract ~hi ~lo t =
+    assert (0 <= lo);
+    assert (lo <= hi);
+    if hi = lo then { w = Some 0; v = Bot }
+    else
+      let w =
+        match t.w with
+        | Some w -> w
+        | None -> failwith "Cannot extract without known width"
+      in
+      let k = Bitvec.of_int ~size:w lo in
+      assert (hi <= w);
+      truncate (lshr t (interval k k)) (hi - lo)
 end
 
 module WrappingIntervalsValueAbstraction = struct
@@ -632,6 +750,7 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVNOT -> bitnot a
     | `ZeroExtend k -> zero_extend a k
     | `SignExtend k -> sign_extend a k
+    | `Extract (hi, lo) -> extract ~hi ~lo a
     | _ -> infer a top |> snd
 
   let eval_binop (op : Lang.Ops.AllOps.binary) a b =
@@ -645,6 +764,9 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVOR -> bitxor a b
     | `BVAND -> bitand a b
     | `BVXOR -> bitxor a b
+    | `BVASHR -> ashr a b
+    | `BVLSHR -> lshr a b
+    | `BVSHL -> shl a b
     | _ -> infer a top |> snd
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) args = top
