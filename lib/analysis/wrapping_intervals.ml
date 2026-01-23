@@ -275,11 +275,18 @@ module WrappingIntervalsLatticeOps = struct
     - [x] Addition
     - [x] Subtraction
     - [x] Multiplication
-    - [x] Bitwise Or/And/Xor
+    - [x] Bitwise Or/And/Xor/Nand
     - [x] Left Shift
     - [x] Logical Right Shift
     - [x] Arithmetic Right Shift
     - [x] (Un)signed Div (see Crab for impl, paper does not provide)
+  - [ ] Comparisons
+  - Intrinsics
+    - [x] Addition
+    - [x] BitOr
+    - [x] BitXor
+    - [x] BitAnd
+    - [ ] Concat
   *)
 
   let bind1 f t =
@@ -763,13 +770,21 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVSDIV -> sdiv a b
     | `BVOR -> bitxor a b
     | `BVAND -> bitand a b
+    | `BVNAND -> bitand a b |> bitnot
     | `BVXOR -> bitxor a b
     | `BVASHR -> ashr a b
     | `BVLSHR -> lshr a b
     | `BVSHL -> shl a b
     | _ -> infer a top |> snd
 
-  let eval_intrin (op : Lang.Ops.AllOps.intrin) args = top
+  let eval_intrin (op : Lang.Ops.AllOps.intrin) args =
+    let fold op = List.fold_left (eval_binop op) bottom args in
+    match op with
+    | `BVADD -> fold `BVADD
+    | `BVOR -> fold `BVOR
+    | `BVXOR -> fold `BVXOR
+    | `BVAND -> fold `BVAND
+    | _ -> List.fold_left (fun a b -> infer a b |> snd) top args
 end
 
 module StateAbstraction = Intra_analysis.MapState (WrappingIntervalsLattice)
