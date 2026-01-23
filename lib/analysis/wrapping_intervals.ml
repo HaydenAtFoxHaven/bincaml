@@ -263,32 +263,6 @@ end
 module WrappingIntervalsLatticeOps = struct
   include WrappingIntervalsLattice
 
-  (*
-  TODO: 
-  - Unary:
-    - [x] Negate
-    - [x] Not
-    - [x] Sign extend
-    - [x] Zero extend
-    - [x] Extract 
-  - Binary:
-    - [x] Addition
-    - [x] Subtraction
-    - [x] Multiplication
-    - [x] Bitwise Or/And/Xor/Nand
-    - [x] Left Shift
-    - [x] Logical Right Shift
-    - [x] Arithmetic Right Shift
-    - [x] (Un)signed Div (see Crab for impl, paper does not provide)
-  - [ ] Comparisons
-  - Intrinsics
-    - [x] Addition
-    - [x] BitOr
-    - [x] BitXor
-    - [x] BitAnd
-    - [ ] Concat
-  *)
-
   let bind1 f t =
     {
       w = t.w;
@@ -738,6 +712,34 @@ module WrappingIntervalsLatticeOps = struct
       let k = Bitvec.of_int ~size:w lo in
       assert (hi <= w);
       truncate (lshr t (interval k k)) (hi - lo)
+
+  let concat s t =
+    match (s.v, t.v) with
+    | Bot, _ | _, Bot ->
+        { w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w); v = Bot }
+    | Top, Top ->
+        { w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w); v = Top }
+    | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
+      ->
+        interval (Bitvec.concat al bl) (Bitvec.concat au bu)
+    | Interval { lower = al; upper = au }, Top ->
+        let w =
+          match t.w with
+          | Some w -> w
+          | None -> failwith "Cannot concat without known width"
+        in
+        interval
+          Bitvec.(concat al (zero ~size:w))
+          Bitvec.(concat au (ones ~size:w))
+    | Top, Interval { lower = bl; upper = bu } ->
+        let w =
+          match s.w with
+          | Some w -> w
+          | None -> failwith "Cannot concat without known width"
+        in
+        interval
+          Bitvec.(concat (zero ~size:w) bl)
+          Bitvec.(concat (ones ~size:w) bu)
 end
 
 module WrappingIntervalsValueAbstraction = struct
@@ -784,7 +786,11 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVOR -> fold `BVOR
     | `BVXOR -> fold `BVXOR
     | `BVAND -> fold `BVAND
-    | _ -> List.fold_left (fun a b -> infer a b |> snd) top args
+    | `BVConcat ->
+        List.fold_left concat
+          (interval (Bitvec.zero ~size:0) (Bitvec.zero ~size:0))
+          args
+    | _ -> top
 end
 
 module StateAbstraction = Intra_analysis.MapState (WrappingIntervalsLattice)
