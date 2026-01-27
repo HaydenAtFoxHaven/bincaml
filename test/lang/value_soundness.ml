@@ -31,6 +31,7 @@ struct
     let* exp = eval_expr in
     let partial = lazy (Expr_eval.partial_eval_expr exp) in
     let abstract = lazy (eval_abs exp) in
+    Lazy.force abstract |> ignore;
     let concrete = lazy (eval_abs (Lazy.force partial)) in
     return (exp, partial, abstract, concrete)
 

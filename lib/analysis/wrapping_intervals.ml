@@ -6,7 +6,18 @@ module WrappingIntervalsLattice = struct
   type l = Top | Interval of { lower : Bitvec.t; upper : Bitvec.t } | Bot
   [@@deriving eq, show { with_path = false }]
 
-  type t = { w : int option; v : l } [@@deriving show { with_path = false }]
+  type t = { w : int option; v : l }
+
+  let show t =
+    let value =
+      match t.v with
+      | Bot -> "⊥"
+      | Top -> "⊤"
+      | Interval { lower; upper } ->
+          "(|" ^ Bitvec.show lower ^ ", " ^ Bitvec.show upper ^ "|)"
+    in
+    let width = match t.w with Some w -> Int.to_string w | None -> "?" in
+    value ^ ":w" ^ width
 
   let equal s t = equal_l s.v t.v
 
@@ -123,13 +134,22 @@ module WrappingIntervalsLattice = struct
 
   (* Join for multiple intervals to increase precision (join is not monotone) *)
   let lub (ints : t list) =
-    let bigger a b = if compare_size a b < 0 then b else a in
+    let bigger a b =
+      match (a.v, b.v) with
+      | x, y when equal_l x y -> a
+      | Bot, _ -> b
+      | _, Bot -> a
+      | Top, _ -> a
+      | _, Top -> b
+      | _ -> if compare_size a b < 0 then b else a
+    in
     let gap a b =
+      let a, b = infer a b in
       match (a.v, b.v) with
       | Interval { upper = au; _ }, Interval { lower = bl; _ }
         when (not (member b.v au)) && not (member a.v bl) ->
           complement (interval bl au)
-      | _, _ -> bottom
+      | _, _ -> infer a bottom |> snd
     in
     (* APLAS12 mentions "last cases are omitted", does not specify which cases. *)
     let extend a b = join a b in
@@ -281,30 +301,50 @@ module WrappingIntervalsLatticeOps = struct
         Interval { lower = Bitvec.bitnot u; upper = Bitvec.bitnot l })
 
   let sign_extend t k =
-    List.filter_map
-      (fun t ->
-        match t.v with
-        | Interval { lower; upper } ->
-            Some
-              (interval
-                 (Bitvec.sign_extend ~extension:k lower)
-                 (Bitvec.sign_extend ~extension:k upper))
-        | _ -> None)
-      (nsplit t)
-    |> lub
+    if Option.equal Int.equal t.w (Some 0) then
+      let zeros = Bitvec.zero ~size:k in
+      interval zeros zeros
+    else
+      List.filter_map
+        (fun t ->
+          match t.v with
+          | Interval { lower; upper } ->
+              Some
+                (interval
+                   (Bitvec.sign_extend ~extension:k lower)
+                   (Bitvec.sign_extend ~extension:k upper))
+          | _ -> None)
+        (nsplit t)
+      |> lub
+      |> fun s ->
+      {
+        v = s.v;
+        w =
+          (match s.w with Some _ -> s.w | None -> Option.map (Int.add k) t.w);
+      }
 
   let zero_extend t k =
-    List.filter_map
-      (fun t ->
-        match t.v with
-        | Interval { lower; upper } ->
-            Some
-              (interval
-                 (Bitvec.zero_extend ~extension:k lower)
-                 (Bitvec.zero_extend ~extension:k upper))
-        | _ -> None)
-      (ssplit t)
-    |> lub
+    if Option.equal Int.equal t.w (Some 0) then
+      let zeros = Bitvec.zero ~size:k in
+      interval zeros zeros
+    else
+      List.filter_map
+        (fun t ->
+          match t.v with
+          | Interval { lower; upper } ->
+              Some
+                (interval
+                   (Bitvec.zero_extend ~extension:k lower)
+                   (Bitvec.zero_extend ~extension:k upper))
+          | _ -> None)
+        (ssplit t)
+      |> lub
+      |> fun s ->
+      {
+        v = s.v;
+        w =
+          (match s.w with Some _ -> s.w | None -> Option.map (Int.add k) t.w);
+      }
 
   let add s t =
     let top = infer s top |> snd in
@@ -387,10 +427,12 @@ module WrappingIntervalsLatticeOps = struct
       in
       intersect umul smul
     in
-    lub
-      (List.concat_map
-         (fun a -> List.concat_map (fun b -> rusmul a b) (cut t))
-         (cut s))
+    infer s
+    @@ lub
+         (List.concat_map
+            (fun a -> List.concat_map (fun b -> rusmul a b) (cut t))
+            (cut s))
+    |> snd
 
   (* Division implementation derived from Crab *)
   let trim_zeroes t =
@@ -421,13 +463,15 @@ module WrappingIntervalsLatticeOps = struct
           interval (Bitvec.udiv al bu) (Bitvec.sdiv au bl)
       | _, _ -> top
     in
-    lub
-      (List.concat_map
-         (fun a ->
-           List.concat_map
-             (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
-             (nsplit t))
-         (nsplit s))
+    infer s
+    @@ lub
+         (List.concat_map
+            (fun a ->
+              List.concat_map
+                (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
+                (nsplit t))
+            (nsplit s))
+    |> snd
 
   let sdiv s t =
     let divide s t =
@@ -462,13 +506,15 @@ module WrappingIntervalsLatticeOps = struct
           | _, _ -> top)
       | _, _ -> top
     in
-    lub
-      (List.concat_map
-         (fun a ->
-           List.concat_map
-             (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
-             (cut t))
-         (cut s))
+    infer s
+    @@ lub
+         (List.concat_map
+            (fun a ->
+              List.concat_map
+                (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
+                (cut t))
+            (cut s))
+    |> snd
 
   let bitlogop min max s t =
     let pre s t =
@@ -478,10 +524,12 @@ module WrappingIntervalsLatticeOps = struct
           interval (min (al, au) (bl, bu)) (max (al, au) (bl, bu))
       | _, _ -> infer s top |> snd
     in
-    lub
-      (List.concat_map
-         (fun a -> List.map (fun b -> pre a b) (ssplit t))
-         (ssplit s))
+    infer s
+    @@ lub
+         (List.concat_map
+            (fun a -> List.map (fun b -> pre a b) (ssplit t))
+            (ssplit s))
+    |> snd
 
   let bitor =
     let min_or (al, au) (bl, bu) =
@@ -685,6 +733,7 @@ module WrappingIntervalsLatticeOps = struct
           | None -> failwith "Cannot arithmetic shift right without known width"
         in
         let fallback =
+          let k = min k w in
           interval
             Bitvec.(concat (ones ~size:k) (zero ~size:(w - k)))
             Bitvec.(concat (zero ~size:k) (ones ~size:(w - k)))
@@ -773,7 +822,7 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVMUL -> mul a b
     | `BVUDIV -> udiv a b
     | `BVSDIV -> sdiv a b
-    | `BVOR -> bitxor a b
+    | `BVOR -> bitor a b
     | `BVAND -> bitand a b
     | `BVNAND -> bitand a b |> bitnot
     | `BVXOR -> bitxor a b
