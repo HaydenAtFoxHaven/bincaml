@@ -89,7 +89,50 @@ let%test_unit "intersect" =
   assert (intersect (iv 0 8) (iv 3 6) = [ iv 3 6 ]);
   assert (intersect (iv 3 7) (iv 6 11) = [ iv 6 7 ])
 
+open WrappingIntervalsValueAbstraction
+
 let%test_unit "mul" =
   let ( = ) = equal in
   let iv a b = interval (Bitvec.of_int ~size:4 a) (Bitvec.of_int ~size:4 b) in
-  assert (WrappingIntervalsValueAbstraction.mul (iv 15 9) (iv 0 1) = iv 15 9)
+  assert (mul (iv 15 9) (iv 0 1) = iv 15 9)
+
+let%test_unit "truncate" =
+  let ( = ) = equal in
+  let iv ~w a b =
+    interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
+  in
+  assert (truncate (iv ~w:4 7 15) 2 = { w = Some 2; v = Top });
+  assert (truncate (iv ~w:4 4 5) 2 = iv ~w:2 0 1)
+
+let%test_unit "shl" =
+  let ( = ) = equal in
+  let iv a b = interval (Bitvec.of_int ~size:4 a) (Bitvec.of_int ~size:4 b) in
+  assert (shl (iv 2 4) (iv 1 1) = iv 4 8);
+  assert (shl (iv 4 8) (iv 2 2) = iv 0 12)
+
+let%test_unit "lshr" =
+  let ( = ) = equal in
+  let iv a b = interval (Bitvec.of_int ~size:4 a) (Bitvec.of_int ~size:4 b) in
+  assert (lshr (iv 3 12) (iv 1 1) = iv 1 6);
+  assert (lshr (iv 15 5) (iv 2 2) = iv 0 3)
+
+let%test_unit "ashr" =
+  let ( = ) = equal in
+  let iv a b = interval (Bitvec.of_int ~size:4 a) (Bitvec.of_int ~size:4 b) in
+  assert (ashr (iv 15 3) (iv 1 1) = iv 15 1);
+  assert (ashr (iv 3 10) (iv 2 2) = iv 12 3)
+
+let%test_unit "extract" =
+  let ( = ) = equal in
+  let iv ~w a b =
+    interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
+  in
+  assert (extract ~hi:5 ~lo:2 @@ iv ~w:6 13 63 = { w = Some 3; v = Top });
+  assert (extract ~hi:3 ~lo:1 @@ iv ~w:4 4 7 = iv ~w:2 2 3)
+
+let%test_unit "concat" =
+  let ( = ) = equal in
+  let iv ~w a b =
+    interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
+  in
+  assert (concat (iv ~w:2 1 3) (iv ~w:2 0 2) = iv ~w:4 4 14)

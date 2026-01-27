@@ -636,8 +636,8 @@ module WrappingIntervalsLatticeOps = struct
         let k = if w < k then 0 else k in
         match (truncate t (w - k)).v with
         | Interval { lower; upper } ->
-            let lower = Bitvec.zero_extend ~extension:(w - k) lower in
-            let upper = Bitvec.zero_extend ~extension:(w - k) upper in
+            let lower = Bitvec.zero_extend ~extension:k lower in
+            let upper = Bitvec.zero_extend ~extension:k upper in
             interval
               Bitvec.(shl lower (of_int ~size:w k))
               Bitvec.(shl upper (of_int ~size:w k))
