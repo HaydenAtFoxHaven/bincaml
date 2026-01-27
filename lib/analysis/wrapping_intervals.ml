@@ -249,7 +249,7 @@ module WrappingIntervalsLattice = struct
     | Top -> (
         match t.w with
         | Some w -> [ interval (umin w) (smax w); interval (smin w) (umax w) ]
-        | None -> failwith "Cannot determine nsplit for Top without width")
+        | None -> failwith "Cannot determine ssplit for Top without width")
     | Interval { lower; upper } ->
         let width = Bitvec.size lower in
         let sp = sp width in
@@ -610,17 +610,19 @@ module WrappingIntervalsLatticeOps = struct
           | Some w -> w
           | None -> failwith "Cannot truncate without known width"
         in
-        let truncl = Bitvec.extract ~hi:k ~lo:0 lower in
-        let truncu = Bitvec.extract ~hi:k ~lo:0 upper in
-        let shiftl = Bitvec.(ashr lower (of_int ~size:w k)) in
-        let shiftu = Bitvec.(ashr upper (of_int ~size:w k)) in
-        if
-          Bitvec.(
-            (equal shiftl shiftu && ule truncl truncu)
-            || equal (add shiftl (of_int ~size:w 1)) shiftu
-               && ugt truncl truncu)
-        then interval truncl truncu
-        else { w = Some k; v = Top }
+        if w <= k then interval (Bitvec.zero ~size:0) (Bitvec.zero ~size:0)
+        else
+          let truncl = Bitvec.extract ~hi:k ~lo:0 lower in
+          let truncu = Bitvec.extract ~hi:k ~lo:0 upper in
+          let shiftl = Bitvec.(ashr lower (of_int ~size:w k)) in
+          let shiftu = Bitvec.(ashr upper (of_int ~size:w k)) in
+          if
+            Bitvec.(
+              (equal shiftl shiftu && ule truncl truncu)
+              || equal (add shiftl (of_int ~size:w 1)) shiftu
+                 && ugt truncl truncu)
+          then interval truncl truncu
+          else { w = Some k; v = Top }
 
   let shl t k =
     let shl_const t k =
@@ -631,6 +633,7 @@ module WrappingIntervalsLatticeOps = struct
           | Some w -> w
           | None -> failwith "Cannot shift left without known width"
         in
+        let k = if w < k then 0 else k in
         match (truncate t (w - k)).v with
         | Interval { lower; upper } ->
             let lower = Bitvec.zero_extend ~extension:(w - k) lower in
@@ -702,7 +705,7 @@ module WrappingIntervalsLatticeOps = struct
   let extract ~hi ~lo t =
     assert (0 <= lo);
     assert (lo <= hi);
-    if hi = lo then { w = Some 0; v = Bot }
+    if hi <= lo then { w = Some 0; v = Bot }
     else
       let w =
         match t.w with
@@ -749,7 +752,7 @@ module WrappingIntervalsValueAbstraction = struct
   let eval_const (op : Lang.Ops.AllOps.const) =
     match op with
     | `Bool _ -> { w = Some 1; v = Top }
-    | `Integer _ -> top
+    | `Integer _ -> { w = Some 0; v = Top }
     | `Bitvector bv ->
         if Bitvec.size bv = 0 then { w = Some 0; v = Top } else interval bv bv
 
