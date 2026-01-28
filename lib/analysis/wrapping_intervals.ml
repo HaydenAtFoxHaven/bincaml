@@ -14,7 +14,7 @@ module WrappingIntervalsLattice = struct
       | Bot -> "⊥"
       | Top -> "⊤"
       | Interval { lower; upper } ->
-          "(|" ^ Bitvec.show lower ^ ", " ^ Bitvec.show upper ^ "|)"
+          "⟦" ^ Bitvec.show lower ^ ", " ^ Bitvec.show upper ^ "⟧"
     in
     let width = match t.w with Some w -> Int.to_string w | None -> "?" in
     value ^ ":w" ^ width
@@ -582,8 +582,8 @@ module WrappingIntervalsLatticeOps = struct
         then
           let tempal = Bitvec.(bitand (bitor al m) (neg m)) in
           let tempbl = Bitvec.(bitand (bitor bl m) (neg m)) in
-          if Bitvec.uge tempal au then Bitvec.bitand tempal bl
-          else if Bitvec.uge tempbl bu then Bitvec.bitand al tempbl
+          if Bitvec.ule tempal au then Bitvec.bitand tempal bl
+          else if Bitvec.ule tempbl bu then Bitvec.bitand al tempbl
           else recurse ()
         else recurse ()
       in
@@ -596,7 +596,7 @@ module WrappingIntervalsLatticeOps = struct
         let one = Bitvec.(of_int ~size:(size m) 1) in
         let recurse _ = max_and_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
         if Bitvec.is_zero m then Bitvec.bitand au bu
-        else if Bitvec.(is_nonzero (bitand au (bitnot bl) |> bitand m)) then
+        else if Bitvec.(is_nonzero (bitand au (bitnot bu) |> bitand m)) then
           let temp = Bitvec.(bitor (bitand au (bitnot m)) (sub m one)) in
           if Bitvec.uge temp al then Bitvec.bitand temp bu else recurse ()
         else if Bitvec.(is_nonzero (bitand (bitnot au) bu |> bitand m)) then
@@ -827,8 +827,8 @@ module WrappingIntervalsValueAbstraction = struct
     (* | `BVUDIV -> udiv a b *)
     (* | `BVSDIV -> sdiv a b *)
     | `BVOR -> bitor a b
-    (* | `BVAND -> bitand a b *)
-    (* | `BVNAND -> bitand a b |> bitnot *)
+    | `BVAND -> bitand a b
+    | `BVNAND -> bitand a b |> bitnot
     | `BVXOR -> bitxor a b
     | `BVASHR -> ashr a b
     | `BVLSHR -> lshr a b
@@ -841,7 +841,7 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVADD -> fold `BVADD
     | `BVOR -> fold `BVOR
     | `BVXOR -> fold `BVXOR
-    (* | `BVAND -> fold `BVAND *)
+    | `BVAND -> fold `BVAND
     | `BVConcat -> (
         List.map Option.some args
         |> List.fold_left
