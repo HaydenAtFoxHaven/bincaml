@@ -404,10 +404,15 @@ module WrappingIntervalsLatticeOps = struct
               let d = Bitvec.to_unsigned_bigint d in
               Z.(lt (sub (mul a b) (mul c d)) (pow (of_int 2) w))
             in
-            if
-              msb_hi al && msb_hi au && msb_hi bl && msb_hi bu
-              && cond (au, bu) (al, bl)
-            then interval (Bitvec.mul al bl) (Bitvec.mul au bu)
+            let all_hi = msb_hi al && msb_hi au && msb_hi bl && msb_hi bu in
+            let all_lo =
+              (not @@ msb_hi al)
+              && (not @@ msb_hi au)
+              && (not @@ msb_hi bl)
+              && (not @@ msb_hi bu)
+            in
+            if (all_hi || all_lo) && cond (au, bu) (al, bl) then
+              interval (Bitvec.mul al bl) (Bitvec.mul au bu)
             else if
               msb_hi al && msb_hi au
               && (not (msb_hi bl))
@@ -818,7 +823,7 @@ module WrappingIntervalsValueAbstraction = struct
     match op with
     | `BVADD -> add a b
     | `BVSUB -> sub a b
-    (* | `BVMUL -> mul a b *)
+    | `BVMUL -> mul a b
     (* | `BVUDIV -> udiv a b *)
     (* | `BVSDIV -> sdiv a b *)
     (* | `BVOR -> bitor a b *)
