@@ -826,10 +826,10 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVMUL -> mul a b
     (* | `BVUDIV -> udiv a b *)
     (* | `BVSDIV -> sdiv a b *)
-    (* | `BVOR -> bitor a b *)
+    | `BVOR -> bitor a b
     (* | `BVAND -> bitand a b *)
     (* | `BVNAND -> bitand a b |> bitnot *)
-    (* | `BVXOR -> bitxor a b *)
+    | `BVXOR -> bitxor a b
     | `BVASHR -> ashr a b
     | `BVLSHR -> lshr a b
     | `BVSHL -> shl a b
@@ -839,8 +839,8 @@ module WrappingIntervalsValueAbstraction = struct
     let fold op = List.fold_left (eval_binop op) bottom args in
     match op with
     | `BVADD -> fold `BVADD
-    (* | `BVOR -> fold `BVOR *)
-    (* | `BVXOR -> fold `BVXOR *)
+    | `BVOR -> fold `BVOR
+    | `BVXOR -> fold `BVXOR
     (* | `BVAND -> fold `BVAND *)
     | `BVConcat -> (
         List.map Option.some args
