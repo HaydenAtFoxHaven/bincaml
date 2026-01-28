@@ -135,4 +135,19 @@ let%test_unit "concat" =
   let iv ~w a b =
     interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
   in
-  assert (concat (iv ~w:2 1 3) (iv ~w:2 0 2) = iv ~w:4 4 14)
+  assert (concat (iv ~w:2 1 3) (iv ~w:2 0 2) = iv ~w:4 4 14);
+  assert (concat (iv ~w:2 3 0) (iv ~w:2 0 2) = iv ~w:4 12 2)
+
+let%test_unit "zero_extend" =
+  let ( = ) = equal in
+  let iv ~w a b =
+    interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
+  in
+  assert (zero_extend (iv ~w:3 0 1) 3 = iv ~w:6 0 1)
+
+let%test_unit "sign_extend" =
+  let ( = ) = equal in
+  let iv ~w a b =
+    interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
+  in
+  assert (sign_extend (iv ~w:3 0 1) 3 = iv ~w:6 0 1)

@@ -301,9 +301,7 @@ module WrappingIntervalsLatticeOps = struct
         Interval { lower = Bitvec.bitnot u; upper = Bitvec.bitnot l })
 
   let sign_extend t k =
-    if Option.equal Int.equal t.w (Some 0) then
-      let zeros = Bitvec.zero ~size:k in
-      interval zeros zeros
+    if Option.equal Int.equal t.w (Some 0) then { w = Some k; v = Top }
     else
       List.filter_map
         (fun t ->
@@ -766,6 +764,12 @@ module WrappingIntervalsLatticeOps = struct
       truncate (lshr t (interval k k)) (hi - lo)
 
   let concat s t =
+    let tw =
+      match t.w with
+      | Some w -> w
+      | None -> failwith "Cannot concat without known width"
+    in
+    let t = if compare (sp tw) t <= 0 then { w = t.w; v = Top } else t in
     match (s.v, t.v) with
     | Bot, _ | _, Bot ->
         { w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w); v = Bot }
@@ -775,23 +779,18 @@ module WrappingIntervalsLatticeOps = struct
       ->
         interval (Bitvec.concat al bl) (Bitvec.concat au bu)
     | Interval { lower = al; upper = au }, Top ->
-        let w =
-          match t.w with
-          | Some w -> w
-          | None -> failwith "Cannot concat without known width"
-        in
         interval
-          Bitvec.(concat al (zero ~size:w))
-          Bitvec.(concat au (ones ~size:w))
+          Bitvec.(concat al (zero ~size:tw))
+          Bitvec.(concat au (ones ~size:tw))
     | Top, Interval { lower = bl; upper = bu } ->
-        let w =
+        let sw =
           match s.w with
           | Some w -> w
           | None -> failwith "Cannot concat without known width"
         in
         interval
-          Bitvec.(concat (zero ~size:w) bl)
-          Bitvec.(concat (ones ~size:w) bu)
+          Bitvec.(concat (zero ~size:sw) bl)
+          Bitvec.(concat (ones ~size:sw) bu)
 end
 
 module WrappingIntervalsValueAbstraction = struct
@@ -820,12 +819,12 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVADD -> add a b
     | `BVSUB -> sub a b
     | `BVMUL -> mul a b
-    | `BVUDIV -> udiv a b
-    | `BVSDIV -> sdiv a b
-    | `BVOR -> bitor a b
-    | `BVAND -> bitand a b
-    | `BVNAND -> bitand a b |> bitnot
-    | `BVXOR -> bitxor a b
+    (* | `BVUDIV -> udiv a b *)
+    (* | `BVSDIV -> sdiv a b *)
+    (* | `BVOR -> bitor a b *)
+    (* | `BVAND -> bitand a b *)
+    (* | `BVNAND -> bitand a b |> bitnot *)
+    (* | `BVXOR -> bitxor a b *)
     | `BVASHR -> ashr a b
     | `BVLSHR -> lshr a b
     | `BVSHL -> shl a b
@@ -835,13 +834,18 @@ module WrappingIntervalsValueAbstraction = struct
     let fold op = List.fold_left (eval_binop op) bottom args in
     match op with
     | `BVADD -> fold `BVADD
-    | `BVOR -> fold `BVOR
-    | `BVXOR -> fold `BVXOR
-    | `BVAND -> fold `BVAND
-    | `BVConcat ->
-        List.fold_left concat
-          (interval (Bitvec.zero ~size:0) (Bitvec.zero ~size:0))
-          args
+    (* | `BVOR -> fold `BVOR *)
+    (* | `BVXOR -> fold `BVXOR *)
+    (* | `BVAND -> fold `BVAND *)
+    | `BVConcat -> (
+        List.map Option.some args
+        |> List.fold_left
+             (fun a b ->
+               match a with Some a -> Option.map (concat a) b | None -> b)
+             None
+        |> function
+        | Some res -> res
+        | None -> { w = Some 0; v = Top })
     | _ -> top
 end
 
