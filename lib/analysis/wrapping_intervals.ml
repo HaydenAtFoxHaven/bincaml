@@ -818,7 +818,7 @@ module WrappingIntervalsValueAbstraction = struct
     match op with
     | `BVADD -> add a b
     | `BVSUB -> sub a b
-    | `BVMUL -> mul a b
+    (* | `BVMUL -> mul a b *)
     (* | `BVUDIV -> udiv a b *)
     (* | `BVSDIV -> sdiv a b *)
     (* | `BVOR -> bitor a b *)
