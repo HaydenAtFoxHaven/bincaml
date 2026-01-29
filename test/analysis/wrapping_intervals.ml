@@ -151,3 +151,19 @@ let%test_unit "sign_extend" =
     interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
   in
   assert (sign_extend (iv ~w:3 0 1) 3 = iv ~w:6 0 1)
+
+let%test "mul2" =
+  let iv ~w a b =
+    interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
+  in
+  let abstract =
+    eval_binop `BVMUL (iv ~w:43 0x48303bae5fb 0x48303bae5fb)
+    @@ eval_intrin `BVConcat
+         [
+           iv ~w:26 0 0;
+           eval_binop `BVUREM (iv ~w:17 0x1e97e 0x1e97e)
+             (iv ~w:17 0xdbf3 0xdbf3);
+         ]
+  in
+  let concrete = iv ~w:43 0x180fcfd9808 0x180fcfd9808 in
+  compare concrete abstract <= 0

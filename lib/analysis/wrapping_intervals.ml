@@ -402,7 +402,9 @@ module WrappingIntervalsLatticeOps = struct
               let b = Bitvec.to_unsigned_bigint b in
               let c = Bitvec.to_unsigned_bigint c in
               let d = Bitvec.to_unsigned_bigint d in
-              Z.(lt (sub (mul a b) (mul c d)) (pow (of_int 2) w))
+              let res = Z.(sub (mul a b) (mul c d)) in
+              Z.(lt res (pow (of_int 2) w))
+              && Z.(leq (neg (pow (of_int 2) w)) res)
             in
             let all_hi = msb_hi al && msb_hi au && msb_hi bl && msb_hi bu in
             let all_lo =
@@ -826,10 +828,10 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVMUL -> mul a b
     (* | `BVUDIV -> udiv a b *)
     (* | `BVSDIV -> sdiv a b *)
-    | `BVOR -> bitor a b
-    | `BVAND -> bitand a b
-    | `BVNAND -> bitand a b |> bitnot
-    | `BVXOR -> bitxor a b
+    (* | `BVOR -> bitor a b *)
+    (* | `BVAND -> bitand a b *)
+    (* | `BVNAND -> bitand a b |> bitnot *)
+    (* | `BVXOR -> bitxor a b *)
     | `BVASHR -> ashr a b
     | `BVLSHR -> lshr a b
     | `BVSHL -> shl a b
@@ -839,9 +841,9 @@ module WrappingIntervalsValueAbstraction = struct
     let fold op = List.fold_left (eval_binop op) bottom args in
     match op with
     | `BVADD -> fold `BVADD
-    | `BVOR -> fold `BVOR
-    | `BVXOR -> fold `BVXOR
-    | `BVAND -> fold `BVAND
+    (* | `BVOR -> fold `BVOR *)
+    (* | `BVXOR -> fold `BVXOR *)
+    (* | `BVAND -> fold `BVAND *)
     | `BVConcat -> (
         List.map Option.some args
         |> List.fold_left

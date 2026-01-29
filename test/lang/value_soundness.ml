@@ -11,6 +11,21 @@ struct
     let* wd = Expr_gen.gen_width in
     Expr_gen.gen_bvexpr (5, wd)
 
+  (* let eval_expr = *)
+  (*   let open QCheck.Gen in *)
+  (*   let* wd = Expr_gen.gen_width in *)
+  (*   let* l = Expr_gen.gen_bvconst wd in *)
+  (*   let* r = Expr_gen.gen_bvconst wd in *)
+  (*   let* op = oneofl [ `BVUDIV; `BVMUL ] in *)
+  (*   return (Expr.BasilExpr.binexp ~op l r) *)
+
+  (* let eval_expr = *)
+  (*   let open QCheck.Gen in *)
+  (*   let* wd = Expr_gen.gen_width in *)
+  (*   let* l = Expr_gen.gen_bvconst wd in *)
+  (*   let* op = oneofl [] in *)
+  (*   return (Expr.BasilExpr.unexp ~op l) *)
+
   let arb_abstract_eval =
     let eval_abs e =
       Eval.eval Ops.AllOps.show_const Ops.AllOps.show_unary
@@ -45,7 +60,8 @@ struct
   let suite =
     let open QCheck in
     let test =
-      Test.make ~name:V.name ~count:10000 ~max_fail:3 arb_abstract_eval is_sound
+      Test.make ~name:V.name ~count:1000000 ~max_fail:3 arb_abstract_eval
+        is_sound
     in
     let suite = List.map QCheck_alcotest.to_alcotest [ test ] in
     ("soundness::" ^ V.name, suite)
