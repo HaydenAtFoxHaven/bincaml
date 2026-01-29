@@ -828,32 +828,32 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVMUL -> mul a b
     (* | `BVUDIV -> udiv a b *)
     (* | `BVSDIV -> sdiv a b *)
-    (* | `BVOR -> bitor a b *)
-    (* | `BVAND -> bitand a b *)
-    (* | `BVNAND -> bitand a b |> bitnot *)
-    (* | `BVXOR -> bitxor a b *)
+    | `BVOR -> bitor a b
+    | `BVAND -> bitand a b
+    | `BVNAND -> bitand a b |> bitnot
+    | `BVXOR -> bitxor a b
     | `BVASHR -> ashr a b
     | `BVLSHR -> lshr a b
     | `BVSHL -> shl a b
     | _ -> infer a top |> snd
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) args =
-    let fold op = List.fold_left (eval_binop op) bottom args in
-    match op with
-    | `BVADD -> fold `BVADD
-    (* | `BVOR -> fold `BVOR *)
-    (* | `BVXOR -> fold `BVXOR *)
-    (* | `BVAND -> fold `BVAND *)
-    | `BVConcat -> (
-        List.map Option.some args
-        |> List.fold_left
-             (fun a b ->
-               match a with Some a -> Option.map (concat a) b | None -> b)
-             None
-        |> function
-        | Some res -> res
-        | None -> { w = Some 0; v = Top })
-    | _ -> top
+    let op =
+      match op with
+      | `BVADD -> eval_binop `BVADD
+      | `BVOR -> eval_binop `BVOR
+      | `BVXOR -> eval_binop `BVXOR
+      | `BVAND -> eval_binop `BVAND
+      | `BVConcat -> concat
+      | _ -> fun _ _ -> top
+    in
+    List.map Option.some args
+    |> List.fold_left
+         (fun a b -> match a with Some a -> Option.map (op a) b | None -> b)
+         None
+    |> function
+    | Some res -> res
+    | None -> { w = Some 0; v = Top }
 end
 
 module StateAbstraction = Intra_analysis.MapState (WrappingIntervalsLattice)
