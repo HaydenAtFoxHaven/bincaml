@@ -4,18 +4,19 @@ module WrappingIntervalsLattice = struct
   let name = "wrappingIntervals"
 
   type l = Top | Interval of { lower : Bitvec.t; upper : Bitvec.t } | Bot
-  [@@deriving eq, show { with_path = false }]
+  [@@deriving eq]
 
   type t = { w : int option; v : l }
 
+  let show_l l =
+    match l with
+    | Bot -> "⊥"
+    | Top -> "⊤"
+    | Interval { lower; upper } ->
+        "⟦" ^ Bitvec.show lower ^ ", " ^ Bitvec.show upper ^ "⟧"
+
   let show t =
-    let value =
-      match t.v with
-      | Bot -> "⊥"
-      | Top -> "⊤"
-      | Interval { lower; upper } ->
-          "⟦" ^ Bitvec.show lower ^ ", " ^ Bitvec.show upper ^ "⟧"
-    in
+    let value = show_l t.v in
     let width = match t.w with Some w -> Int.to_string w | None -> "?" in
     value ^ ":w" ^ width
 
@@ -34,7 +35,6 @@ module WrappingIntervalsLattice = struct
   let infer { w = w1; v = a } { w = w2; v = b } =
     match (w1, w2) with
     | Some w1, Some w2 ->
-        (* Disable assertion when running `dune test` or the soundness check crashes *)
         assert (w1 = w2);
         ({ w = Some w1; v = a }, { w = Some w2; v = b })
     | Some w1, None -> ({ w = Some w1; v = a }, { w = Some w1; v = b })
