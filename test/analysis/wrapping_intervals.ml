@@ -167,3 +167,8 @@ let%test "mul2" =
   in
   let concrete = iv ~w:43 0x180fcfd9808 0x180fcfd9808 in
   compare concrete abstract <= 0
+
+let%test "udiv_top_top" =
+  let ( = ) = equal in
+  let top = { w = Some 4; v = Top } in
+  top = udiv top top

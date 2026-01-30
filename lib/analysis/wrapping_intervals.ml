@@ -404,7 +404,7 @@ module WrappingIntervalsLatticeOps = struct
               let d = Bitvec.to_unsigned_bigint d in
               let res = Z.(sub (mul a b) (mul c d)) in
               Z.(lt res (pow (of_int 2) w))
-              && Z.(leq (neg (pow (of_int 2) w)) res)
+              && Z.(lt (neg (pow (of_int 2) w)) res)
             in
             let all_hi = msb_hi al && msb_hi au && msb_hi bl && msb_hi bu in
             let all_lo =
@@ -465,7 +465,7 @@ module WrappingIntervalsLatticeOps = struct
       match (s.v, t.v) with
       | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
         ->
-          interval (Bitvec.udiv al bu) (Bitvec.sdiv au bl)
+          interval (Bitvec.udiv al bu) (Bitvec.udiv au bl)
       | _, _ -> top
     in
     infer s
@@ -474,8 +474,8 @@ module WrappingIntervalsLatticeOps = struct
             (fun a ->
               List.concat_map
                 (fun bs -> List.map (fun b -> divide a b) (trim_zeroes bs))
-                (nsplit t))
-            (nsplit s))
+                (ssplit t))
+            (ssplit s))
     |> snd
 
   let sdiv s t =
@@ -826,8 +826,8 @@ module WrappingIntervalsValueAbstraction = struct
     | `BVADD -> add a b
     | `BVSUB -> sub a b
     | `BVMUL -> mul a b
-    (* | `BVUDIV -> udiv a b *)
-    (* | `BVSDIV -> sdiv a b *)
+    | `BVUDIV -> udiv a b
+    | `BVSDIV -> sdiv a b
     | `BVOR -> bitor a b
     | `BVAND -> bitand a b
     | `BVNAND -> bitand a b |> bitnot

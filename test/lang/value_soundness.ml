@@ -11,30 +11,6 @@ struct
     let* wd = Expr_gen.gen_width in
     Expr_gen.gen_bvexpr (5, wd)
 
-  (* let eval_expr = *)
-  (*   let open QCheck.Gen in *)
-  (*   let* wd = Expr_gen.gen_width in *)
-  (*   let gen_binop l r = *)
-  (*     let* op = oneofl [ `BVOR; `BVXOR; `BVNAND; `BVUREM ] in *)
-  (*     return (Expr.BasilExpr.binexp ~op l r) *)
-  (*   in *)
-  (*   let gen_bvexpr = *)
-  (*     fix (fun self (size, wd) -> *)
-  (*         let self wd = self (size / 2, wd) in *)
-  (*         match size with *)
-  (*         | 0 -> Expr_gen.gen_bvconst wd *)
-  (*         | size -> *)
-  (*             frequency *)
-  (*               [ *)
-  (*                 (1, Expr_gen.gen_bvconst wd); *)
-  (*                 ( 2, *)
-  (*                   let* l = self wd in *)
-  (*                   let* r = self wd in *)
-  (*                   gen_binop l r ); *)
-  (*               ]) *)
-  (*   in *)
-  (*   gen_bvexpr (5, wd) *)
-
   let arb_abstract_eval =
     let eval_abs e =
       Eval.eval Ops.AllOps.show_const Ops.AllOps.show_unary
