@@ -1,4 +1,7 @@
 open Bincaml_util.Common
+open Bincaml_util.Bitvec
+
+(* https://arxiv.org/pdf/2105.05398 *)
 
 module IsKnownLattice = struct
   let name = "tnum"
@@ -7,30 +10,30 @@ module IsKnownLattice = struct
   [@@deriving eq]
 
   let tnum v m =
-    assert (Bitvec.(is_zero (bitand v m)));
-    Bitvec.size_is_equal v m;
+    assert (is_zero (bitand v m));
+    size_is_equal v m;
     TNum { value = v; mask = m }
 
-  let known v = tnum v Bitvec.(zero ~size:(size v))
+  let known v = tnum v (zero ~size:(size v))
 
   let show = function
     | Top -> "⊤"
     | Bot -> "⊥"
     | TNum { value = v; mask = m } ->
-        let size = Bitvec.size v in
+        let tnum_size = size v in
         let rec result acc i v m =
-          if i >= size then acc
+          if i >= tnum_size then acc
           else
-            let one = Bitvec.(of_int ~size:(size v) 1) in
-            let mask_bit = Bitvec.(is_nonzero @@ bitand m one) in
-            let value_bit = Bitvec.(is_nonzero @@ bitand v one) in
+            let one = (of_int ~size:(size v) 1) in
+            let mask_bit = (is_nonzero @@ bitand m one) in
+            let value_bit = (is_nonzero @@ bitand v one) in
 
             let bit_str =
               if mask_bit then "μ" else if value_bit then "1" else "0"
             in
 
             let new_acc = bit_str ^ acc in
-            result new_acc (i + 1) (Bitvec.lshr v one) (Bitvec.lshr m one)
+            result new_acc (i + 1) (lshr v one) (lshr m one)
         in
         result "" 0 v m
 
@@ -57,9 +60,9 @@ module IsKnownLattice = struct
     | Top, _ | _, Top -> Top
     | Bot, x | x, Bot -> x
     | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
-        let mask = Bitvec.bitxor av bv |> Bitvec.bitor am |> Bitvec.bitor bm in
+        let mask = bitxor av bv |> bitor am |> bitor bm in
         let value =
-          Bitvec.bitnot mask |> Bitvec.bitand @@ Bitvec.bitand av bv
+          bitnot mask |> bitand @@ bitand av bv
         in
         tnum value mask
 
@@ -79,115 +82,115 @@ module IsKnownBitsOps = struct
     | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
         f (av, am) (bv, bm)
 
-  let zero_extend k =
+  let tnum_zero_extend k =
     bind1 (fun (v, m) ->
         tnum
-          (Bitvec.zero_extend ~extension:k v)
-          (Bitvec.zero_extend ~extension:k m))
+          (zero_extend ~extension:k v)
+          (zero_extend ~extension:k m))
 
-  let sign_extend k =
+  let tnum_sign_extend k =
     bind1 (fun (v, m) ->
         tnum
-          (Bitvec.sign_extend ~extension:k v)
-          (Bitvec.zero_extend ~extension:k m))
+          (sign_extend ~extension:k v)
+          (zero_extend ~extension:k m))
 
-  let extract (hi, lo) =
+  let tnum_extract (hi, lo) =
     bind1 (fun (v, m) ->
-        tnum (Bitvec.extract ~hi ~lo v) (Bitvec.extract ~hi ~lo m))
+        tnum (extract ~hi ~lo v) (extract ~hi ~lo m))
 
-  let bitnot = bind1 (fun (v, m) -> tnum Bitvec.(bitnot @@ bitor v m) m)
+  let tnum_bitnot = bind1 (fun (v, m) -> tnum (bitnot @@ bitor v m) m)
 
-  let bitand =
+  let tnum_bitand =
     bind2 (fun (av, am) (bv, bm) ->
-        let v = Bitvec.bitand av bv in
-        let alpha = Bitvec.bitor av am in
-        let beta = Bitvec.bitor bv bm in
-        let m = Bitvec.(bitand (bitnot v) @@ bitand alpha beta) in
+        let v = bitand av bv in
+        let alpha = bitor av am in
+        let beta = bitor bv bm in
+        let m = (bitand (bitnot v) @@ bitand alpha beta) in
         tnum v m)
 
-  let bitor =
+  let tnum_bitor =
     bind2 (fun (av, am) (bv, bm) ->
-        let v = Bitvec.(bitor av bv) in
-        let m = Bitvec.(bitand (bitor am bm) (bitnot v)) in
+        let v = (bitor av bv) in
+        let m = (bitand (bitor am bm) (bitnot v)) in
         tnum v m)
 
-  let bitxor =
+  let tnum_bitxor =
     bind2 (fun (av, am) (bv, bm) ->
-        let v = Bitvec.(bitand (bitxor av bv) (bitnot @@ bitor am bm)) in
-        tnum v Bitvec.(bitor am bm))
+        let v = (bitand (bitxor av bv) (bitnot @@ bitor am bm)) in
+        tnum v (bitor am bm))
 
-  let add =
+  let tnum_add =
     bind2 (fun (av, am) (bv, bm) ->
-        let sm = Bitvec.add am bm in
-        let sv = Bitvec.add av bv in
-        let sigma = Bitvec.add sv sm in
-        let chi = Bitvec.bitxor sigma sv in
-        let mu = Bitvec.(bitor chi (bitor am bm)) in
-        tnum Bitvec.(bitand sv (bitnot mu)) mu)
+        let sm = add am bm in
+        let sv = add av bv in
+        let sigma = add sv sm in
+        let chi = bitxor sigma sv in
+        let mu = (bitor chi (bitor am bm)) in
+        tnum (bitand sv (bitnot mu)) mu)
 
-  let sub =
+  let tnum_sub =
     bind2 (fun (av, am) (bv, bm) ->
-        let dv = Bitvec.sub av bv in
-        let alpha = Bitvec.add dv am in
-        let beta = Bitvec.sub dv bm in
-        let xi = Bitvec.bitxor alpha beta in
-        let last = Bitvec.(bitor xi (bitor am bm)) in
-        tnum Bitvec.(bitand dv (bitnot last)) last)
+        let dv = sub av bv in
+        let alpha = add dv am in
+        let beta = sub dv bm in
+        let xi = bitxor alpha beta in
+        let last = (bitor xi (bitor am bm)) in
+        tnum (bitand dv (bitnot last)) last)
 
-  let neg =
+  let tnum_neg =
     bind1 (fun (v, m) ->
-        let zero = Bitvec.(zero ~size:(size v)) in
-        sub (known zero) (tnum v m))
+        let zero = (zero ~size:(size v)) in
+        tnum_sub (known zero) (tnum v m))
 
-  let bitSHL =
+  let tnum_shl =
     bind2 (fun (av, am) (bv, bm) ->
-        if Bitvec.is_nonzero bm then Top
-        else tnum (Bitvec.shl av bv) (Bitvec.shl am bv))
+        if is_nonzero bm then Top
+        else tnum (shl av bv) (shl am bv))
 
-  let bitLSHR =
+  let tnum_lshr =
     bind2 (fun (av, am) (bv, bm) ->
-        if Bitvec.is_nonzero bm then Top
-        else tnum (Bitvec.lshr av bv) (Bitvec.shl am bv))
+        if is_nonzero bm then Top
+        else tnum (lshr av bv) (shl am bv))
 
-  let bitASHR =
+  let tnum_ashr =
     bind2 (fun (av, am) (bv, bm) ->
-        if Bitvec.is_nonzero bm then Top
-        else tnum (Bitvec.ashr av bv) (Bitvec.shl am bv))
+        if is_nonzero bm then Top
+        else tnum (ashr av bv) (shl am bv))
 
-  let mul =
+  let tnum_mul =
     bind2 (fun (av, am) (bv, bm) ->
-        let t_zero = known Bitvec.(of_int ~size:(size av) 0) in
-        let one = Bitvec.(of_int ~size:(size av) 1) in
+        let t_zero = known (of_int ~size:(size av) 0) in
+        let one = (of_int ~size:(size av) 1) in
 
         let rec tnum_mul_aux accv accm a b =
           let av, am = a in
           let bv, bm = b in
 
-          if Bitvec.(is_zero @@ bitor av am) then add accv accm
+          if (is_zero @@ bitor av am) then tnum_add accv accm
           else
-            let a_lsb = Bitvec.bitand av one in
-            let a_mask_lsb = Bitvec.bitand am one in
+            let a_lsb = bitand av one in
+            let a_mask_lsb = bitand am one in
             let b_tnum = tnum bv bm in
             let recurse accv accm =
               let a_next =
                 bind1
-                  (fun (v, m) -> tnum Bitvec.(lshr v one) (Bitvec.lshr m one))
+                  (fun (v, m) -> tnum (lshr v one) (lshr m one))
                   (tnum av am)
               in
               let b_next =
                 bind1
-                  (fun (v, m) -> tnum Bitvec.(shl v one) Bitvec.(shl m one))
+                  (fun (v, m) -> tnum (shl v one) (shl m one))
                   b_tnum
               in
               bind2 (tnum_mul_aux accv accm) a_next b_next
             in
 
-            if Bitvec.(is_nonzero a_lsb) then
-              let accv' = add accv (known bv) in
+            if (is_nonzero a_lsb) then
+              let accv' = tnum_add accv (known bv) in
               recurse accv' accm
-            else if Bitvec.(is_nonzero a_mask_lsb) then
+            else if (is_nonzero a_mask_lsb) then
               let accm' =
-                add accm (tnum Bitvec.(of_int ~size:(size bm) 0) bm)
+                tnum_add accm (tnum (of_int ~size:(size bm) 0) bm)
               in
               recurse accv accm'
             else recurse accv accm
@@ -195,12 +198,12 @@ module IsKnownBitsOps = struct
 
         tnum_mul_aux t_zero t_zero (av, am) (bv, bm))
 
-  let concat a b =
+  let tnum_concat a b =
     match (a, b) with
     | Bot, t | t, Bot -> t
     | Top, _ | _, Top -> Top
     | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
-        tnum (Bitvec.concat av bv) (Bitvec.concat am bm)
+        tnum (concat av bv) (concat am bm)
 end
 
 module IsKnownBitsValueAbstraction = struct
@@ -209,31 +212,31 @@ module IsKnownBitsValueAbstraction = struct
   let eval_const (op : Lang.Ops.AllOps.const) =
     match op with
     | `Bitvector a -> known a
-    | `Bool true -> known @@ Bitvec.ones ~size:1
-    | `Bool false -> known @@ Bitvec.zero ~size:1
+    | `Bool true -> known @@ ones ~size:1
+    | `Bool false -> known @@ zero ~size:1
     | _ -> Top
 
   let eval_unop (op : Lang.Ops.AllOps.unary) a =
     match op with
-    | `BVNOT -> bitnot a
-    | `ZeroExtend k -> zero_extend k a
-    | `SignExtend k -> sign_extend k a
-    | `Extract (hi, lo) -> extract (hi, lo) a
-    | `BVNEG -> neg a
+    | `BVNOT -> tnum_bitnot a
+    | `ZeroExtend k -> tnum_zero_extend k a
+    | `SignExtend k -> tnum_sign_extend k a
+    | `Extract (hi, lo) -> tnum_extract (hi, lo) a
+    | `BVNEG -> tnum_neg a
     | _ -> Top
 
   let eval_binop (op : Lang.Ops.AllOps.binary) a b =
     match op with
-    | `BVADD -> add a b
-    | `BVSUB -> sub a b
-    | `BVAND -> bitand a b
-    | `BVNAND -> bitnot (bitand a b)
-    | `BVOR -> bitor a b
-    | `BVXOR -> bitxor a b
-    | `BVSHL -> bitSHL a b
-    | `BVLSHR -> bitLSHR a b
-    | `BVASHR -> bitASHR a b
-    | `BVMUL -> mul a b
+    | `BVADD -> tnum_add a b
+    | `BVSUB -> tnum_sub a b
+    | `BVAND -> tnum_bitand a b
+    | `BVNAND -> tnum_bitnot (tnum_bitand a b)
+    | `BVOR -> tnum_bitor a b
+    | `BVXOR -> tnum_bitxor a b
+    | `BVSHL -> tnum_shl a b
+    | `BVLSHR -> tnum_lshr a b
+    | `BVASHR -> tnum_ashr a b
+    | `BVMUL -> tnum_mul a b
     | _ -> Top
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) (args : t list) =
@@ -253,7 +256,7 @@ module IsKnownBitsValueAbstraction = struct
       | `BVOR -> eval_binop `BVOR
       | `BVXOR -> eval_binop `BVXOR
       | `BVAND -> eval_binop `BVAND
-      | `BVConcat -> concat
+      | `BVConcat -> tnum_concat
       | _ -> fun _ _ -> Top
     in
     fold f args
