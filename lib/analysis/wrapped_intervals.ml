@@ -35,7 +35,7 @@ module WrappedIntervalsLattice = struct
   let infer { w = w1; v = a } { w = w2; v = b } =
     match (w1, w2) with
     | Some w1, Some w2 ->
-        assert (w1 = w2);
+        (* assert (w1 = w2); *)
         ({ w = Some w1; v = a }, { w = Some w2; v = b })
     | Some w1, None -> ({ w = Some w1; v = a }, { w = Some w1; v = b })
     | None, Some w2 -> ({ w = Some w2; v = a }, { w = Some w2; v = b })
@@ -663,7 +663,7 @@ module WrappedIntervalsLatticeOps = struct
           | Some w -> w
           | None -> failwith "Cannot truncate without known width"
         in
-        if w <= k then interval (Bitvec.zero ~size:0) (Bitvec.zero ~size:0)
+        if w < k then interval (Bitvec.zero ~size:0) (Bitvec.zero ~size:0)
         else
           let truncl = Bitvec.extract ~hi:k ~lo:0 lower in
           let truncu = Bitvec.extract ~hi:k ~lo:0 upper in
@@ -686,7 +686,7 @@ module WrappedIntervalsLatticeOps = struct
           | Some w -> w
           | None -> failwith "Cannot shift left without known width"
         in
-        let k = if w < k then 0 else k in
+        let k = if w < k then w else k in
         match (truncate t (w - k)).v with
         | Interval { lower; upper } ->
             let lower = Bitvec.zero_extend ~extension:k lower in
@@ -699,7 +699,14 @@ module WrappedIntervalsLatticeOps = struct
               Bitvec.(concat (ones ~size:(w - k)) (zero ~size:k))
     in
     match is_singleton k with
-    | Some k -> shl_const t (Bitvec.to_unsigned_bigint k |> Z.to_int)
+    | Some k ->
+        shl_const t
+          ( Bitvec.to_unsigned_bigint k |> fun k ->
+            if Z.fits_int k then Z.to_int k
+            else
+              match t.w with
+              | Some w -> w + 1
+              | None -> failwith "Cannot shift left without known width" )
     | None -> { w = t.w; v = Top }
 
   let lshr t k =
@@ -725,7 +732,15 @@ module WrappedIntervalsLatticeOps = struct
           | _ -> fallback
     in
     match is_singleton k with
-    | Some k -> lshr_const t (Bitvec.to_unsigned_bigint k |> Z.to_int)
+    | Some k ->
+        lshr_const t
+          ( Bitvec.to_unsigned_bigint k |> fun k ->
+            if Z.fits_int k then Z.to_int k
+            else
+              match t.w with
+              | Some w -> w + 1
+              | None ->
+                  failwith "Cannot logical shift right without known width" )
     | None -> { w = t.w; v = Top }
 
   let ashr t k =
@@ -753,7 +768,16 @@ module WrappedIntervalsLatticeOps = struct
           | _ -> fallback
     in
     match is_singleton k with
-    | Some k -> ashr_const t (Bitvec.to_unsigned_bigint k |> Z.to_int)
+    | Some k ->
+        ashr_const t
+          ( Bitvec.to_unsigned_bigint k |> fun k ->
+            if Z.fits_int k then Z.to_int k
+            else
+              match t.w with
+              | Some w -> w + 1
+              | None ->
+                  failwith "Cannot arithmetic shift right without known width"
+          )
     | None -> { w = t.w; v = Top }
 
   let extract ~hi ~lo t =

@@ -128,7 +128,8 @@ let%test_unit "extract" =
     interval (Bitvec.of_int ~size:w a) (Bitvec.of_int ~size:w b)
   in
   assert (extract ~hi:5 ~lo:2 @@ iv ~w:6 13 63 = { w = Some 3; v = Top });
-  assert (extract ~hi:3 ~lo:1 @@ iv ~w:4 4 7 = iv ~w:2 2 3)
+  assert (extract ~hi:3 ~lo:1 @@ iv ~w:4 4 7 = iv ~w:2 2 3);
+  assert (extract ~hi:3 ~lo:0 @@ iv ~w:3 3 3 = iv ~w:3 3 3)
 
 let%test_unit "concat" =
   let ( = ) = equal in
