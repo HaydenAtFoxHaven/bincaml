@@ -1,7 +1,7 @@
 open Bincaml_util.Common
 
-module WrappingIntervalsLattice = struct
-  let name = "wrappingIntervals"
+module WrappedIntervalsLattice = struct
+  let name = "wrappedIntervals"
 
   type l = Top | Interval of { lower : Bitvec.t; upper : Bitvec.t } | Bot
   [@@deriving eq]
@@ -280,8 +280,8 @@ module WrappingIntervalsLattice = struct
   let cut t = List.concat_map ssplit (nsplit t)
 end
 
-module WrappingIntervalsLatticeOps = struct
-  include WrappingIntervalsLattice
+module WrappedIntervalsLatticeOps = struct
+  include WrappedIntervalsLattice
 
   let bind1 f t =
     {
@@ -800,9 +800,8 @@ module WrappingIntervalsLatticeOps = struct
           Bitvec.(concat (ones ~size:sw) bu)
 end
 
-module WrappingIntervalsValueAbstraction = struct
-  include WrappingIntervalsLattice
-  include WrappingIntervalsLatticeOps
+module WrappedIntervalsValueAbstraction = struct
+  include WrappedIntervalsLatticeOps
 
   let eval_const (op : Lang.Ops.AllOps.const) =
     match op with
@@ -856,12 +855,12 @@ module WrappingIntervalsValueAbstraction = struct
     | None -> { w = Some 0; v = Top }
 end
 
-module StateAbstraction = Intra_analysis.MapState (WrappingIntervalsLattice)
+module StateAbstraction = Intra_analysis.MapState (WrappedIntervalsLattice)
 
-module WrappingIntervalsValueAbstractionBasil = struct
-  include WrappingIntervalsValueAbstraction
+module WrappedIntervalsValueAbstractionBasil = struct
+  include WrappedIntervalsValueAbstraction
   module E = Lang.Expr.BasilExpr
 end
 
 include
-  Dataflow_graph.EasyForwardAnalysisPack (WrappingIntervalsValueAbstractionBasil)
+  Dataflow_graph.EasyForwardAnalysisPack (WrappedIntervalsValueAbstractionBasil)

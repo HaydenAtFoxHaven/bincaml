@@ -6,8 +6,8 @@
   dataflow_graph
   intra_analysis
   defuse_bool
-  wrapping_intervals
-  lattice_types)
+  lattice_types
+  wrapped_intervals)
  (libraries
   patricia-tree
   loader

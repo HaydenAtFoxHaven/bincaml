@@ -1,6 +1,6 @@
 open Bincaml_util.Common
-open Analysis.Wrapping_intervals
-open WrappingIntervalsLattice
+open Analysis.Wrapped_intervals
+open WrappedIntervalsLattice
 
 let dbg x =
   print_endline (show x);
@@ -89,7 +89,7 @@ let%test_unit "intersect" =
   assert (intersect (iv 0 8) (iv 3 6) = [ iv 3 6 ]);
   assert (intersect (iv 3 7) (iv 6 11) = [ iv 6 7 ])
 
-open WrappingIntervalsValueAbstraction
+open WrappedIntervalsValueAbstraction
 
 let%test_unit "mul" =
   let ( = ) = equal in
