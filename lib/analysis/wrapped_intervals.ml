@@ -1,4 +1,5 @@
 open Bincaml_util.Common
+open Bitvec
 
 module WrappedIntervalsLattice = struct
   let name = "wrappedIntervals"
@@ -12,8 +13,7 @@ module WrappedIntervalsLattice = struct
     match l with
     | Bot -> "⊥"
     | Top -> "⊤"
-    | Interval { lower; upper } ->
-        "⟦" ^ Bitvec.show lower ^ ", " ^ Bitvec.show upper ^ "⟧"
+    | Interval { lower; upper } -> "⟦" ^ show lower ^ ", " ^ show upper ^ "⟧"
 
   let show t =
     let value = show_l t.v in
@@ -23,9 +23,9 @@ module WrappedIntervalsLattice = struct
   let equal s t = equal_l s.v t.v
 
   let interval lower upper =
-    Bitvec.size_is_equal lower upper;
+    size_is_equal lower upper;
     {
-      w = Some (Bitvec.size lower);
+      w = Some (size lower);
       v =
         (if Bitvec.(equal lower (add upper (of_int ~size:(size upper) 1))) then
            Top
@@ -41,10 +41,10 @@ module WrappedIntervalsLattice = struct
     | None, Some w2 -> ({ w = Some w2; v = a }, { w = Some w2; v = b })
     | None, None -> ({ w = None; v = a }, { w = None; v = b })
 
-  let umin width = Bitvec.zero ~size:width
-  let umax width = Bitvec.ones ~size:width
-  let smin width = Bitvec.(concat (ones ~size:1) (zero ~size:(width - 1)))
-  let smax width = Bitvec.(zero_extend ~extension:1 (ones ~size:(width - 1)))
+  let umin width = zero ~size:width
+  let umax width = ones ~size:width
+  let smin width = concat (ones ~size:1) (zero ~size:(width - 1))
+  let smax width = zero_extend ~extension:1 (ones ~size:(width - 1))
   let sp width = interval (umax width) (umin width)
   let np width = interval (smax width) (smin width)
   let top = { w = None; v = Top }
@@ -59,7 +59,7 @@ module WrappedIntervalsLattice = struct
         | Some w -> Z.pow (Z.of_int 2) w
         | None -> failwith "Cannot determine cardinality for Top without width")
     | Interval { lower; upper } ->
-        Bitvec.(sub upper lower |> to_unsigned_bigint |> Z.add (Z.of_int 1))
+        sub upper lower |> to_unsigned_bigint |> Z.add (Z.of_int 1)
 
   let is_singleton { w; v } =
     match v with
@@ -74,8 +74,8 @@ module WrappedIntervalsLattice = struct
     | Bot -> { w; v = Top }
     | Top -> { w; v = Bot }
     | Interval { lower; upper } ->
-        let new_lower = Bitvec.(add upper (of_int ~size:(size upper) 1)) in
-        let new_upper = Bitvec.(sub lower (of_int ~size:(size lower) 1)) in
+        let new_lower = add upper (of_int ~size:(size upper) 1) in
+        let new_upper = sub lower (of_int ~size:(size lower) 1) in
         interval new_lower new_upper
 
   let member t e =
@@ -83,9 +83,9 @@ module WrappedIntervalsLattice = struct
     | Bot -> false
     | Top -> true
     | Interval { lower; upper } ->
-        Bitvec.size_is_equal lower e;
-        Bitvec.size_is_equal upper e;
-        Bitvec.(ule (sub e lower) (sub upper lower))
+        size_is_equal lower e;
+        size_is_equal upper e;
+        ule (sub e lower) (sub upper lower)
 
   let compare_l a b =
     match (a, b) with
@@ -119,7 +119,7 @@ module WrappedIntervalsLattice = struct
           let bl_mem = member a bl in
           let bu_mem = member a bu in
           if al_mem && au_mem && bl_mem && bu_mem then
-            { w = Some (Bitvec.size al); v = Top }
+            { w = Some (size al); v = Top }
           else if au_mem && bl_mem then interval al bu
           else if al_mem && bu_mem then interval bl au
           else
@@ -127,7 +127,7 @@ module WrappedIntervalsLattice = struct
             let outer_span = cardinality (interval bu al) in
             if
               Z.lt inner_span outer_span
-              || (Z.equal inner_span outer_span && Bitvec.ule al bl)
+              || (Z.equal inner_span outer_span && ule al bl)
             then interval al bu
             else interval bl au
       | _, _ -> failwith "unreachable"
@@ -166,8 +166,7 @@ module WrappedIntervalsLattice = struct
       List.fold_left
         (fun acc t ->
           match t.v with
-          | Interval { lower; upper } when Bitvec.ule upper lower ->
-              extend acc t
+          | Interval { lower; upper } when ule upper lower -> extend acc t
           | _ -> acc)
         bottom sorted
     in
@@ -189,9 +188,9 @@ module WrappedIntervalsLattice = struct
     | Top, _ -> t
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
-        Bitvec.size_is_equal al bl;
-        Bitvec.size_is_equal au bu;
-        let width = Bitvec.size al in
+        size_is_equal al bl;
+        size_is_equal au bu;
+        let width = size al in
         if compare t s <= 0 then s
         else if Z.geq (cardinality s) (Z.pow (Z.of_int 2) width) then
           { w = Some width; v = Top }
@@ -200,26 +199,23 @@ module WrappedIntervalsLattice = struct
           if equal joined (interval al bu) then
             join joined
               (interval al
-                 Bitvec.(
-                   sub (mul au (of_int ~size:width 2)) al
-                   |> add (of_int ~size:width 1)))
+                 (sub (mul au (of_int ~size:width 2)) al
+                 |> add (of_int ~size:width 1)))
           else if equal joined (interval bl au) then
             join joined
               (interval
-                 Bitvec.(
-                   sub
-                     (sub (mul al (of_int ~size:width 2)) au)
-                     (of_int ~size:width 1))
+                 (sub
+                    (sub (mul al (of_int ~size:width 2)) au)
+                    (of_int ~size:width 1))
                  au)
           else if member b al && member b au then
             join t
               (interval bl
-                 Bitvec.(
-                   sub
-                     (bl
-                     |> add (mul au (of_int ~size:width 2))
-                     |> add (of_int ~size:width 1))
-                     (mul al (of_int ~size:width 2))))
+                 (sub
+                    (bl
+                    |> add (mul au (of_int ~size:width 2))
+                    |> add (of_int ~size:width 1))
+                    (mul al (of_int ~size:width 2))))
           else { w = Some width; v = Top }
 
   let intersect s t =
@@ -257,7 +253,7 @@ module WrappedIntervalsLattice = struct
         | Some w -> [ interval (umin w) (smax w); interval (smin w) (umax w) ]
         | None -> failwith "Cannot determine nsplit for Top without width")
     | Interval { lower; upper } ->
-        let width = Bitvec.size lower in
+        let width = size lower in
         let np = np width in
         if compare np t <= 0 then
           [ interval lower (smax width); interval (smin width) upper ]
@@ -271,7 +267,7 @@ module WrappedIntervalsLattice = struct
         | Some w -> [ interval (umin w) (smax w); interval (smin w) (umax w) ]
         | None -> failwith "Cannot determine ssplit for Top without width")
     | Interval { lower; upper } ->
-        let width = Bitvec.size lower in
+        let width = size lower in
         let sp = sp width in
         if compare sp t <= 0 then
           [ interval lower (umax width); interval (umin width) upper ]
@@ -293,12 +289,10 @@ module WrappedIntervalsLatticeOps = struct
         | Interval { lower; upper } -> f lower upper);
     }
 
-  let neg =
-    bind1 (fun l u -> Interval { lower = Bitvec.neg u; upper = Bitvec.neg l })
+  let neg = bind1 (fun l u -> Interval { lower = neg u; upper = neg l })
 
   let bitnot =
-    bind1 (fun l u ->
-        Interval { lower = Bitvec.bitnot u; upper = Bitvec.bitnot l })
+    bind1 (fun l u -> Interval { lower = bitnot u; upper = bitnot l })
 
   let sign_extend t k =
     if Option.equal Int.equal t.w (Some 0) then { w = Some k; v = Top }
@@ -309,8 +303,8 @@ module WrappedIntervalsLatticeOps = struct
           | Interval { lower; upper } ->
               Some
                 (interval
-                   (Bitvec.sign_extend ~extension:k lower)
-                   (Bitvec.sign_extend ~extension:k upper))
+                   (sign_extend ~extension:k lower)
+                   (sign_extend ~extension:k upper))
           | _ -> None)
         (nsplit t)
       |> lub
@@ -323,7 +317,7 @@ module WrappedIntervalsLatticeOps = struct
 
   let zero_extend t k =
     if Option.equal Int.equal t.w (Some 0) then
-      let zeros = Bitvec.zero ~size:k in
+      let zeros = zero ~size:k in
       interval zeros zeros
     else
       List.filter_map
@@ -332,8 +326,8 @@ module WrappedIntervalsLatticeOps = struct
           | Interval { lower; upper } ->
               Some
                 (interval
-                   (Bitvec.zero_extend ~extension:k lower)
-                   (Bitvec.zero_extend ~extension:k upper))
+                   (zero_extend ~extension:k lower)
+                   (zero_extend ~extension:k upper))
           | _ -> None)
         (ssplit t)
       |> lub
@@ -352,7 +346,7 @@ module WrappedIntervalsLatticeOps = struct
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if Z.(leq (add (cardinality s) (cardinality t)) (cardinality top)) then
-          interval (Bitvec.add al bl) (Bitvec.add au bu)
+          interval (add al bl) (add au bu)
         else top
     | _, _ -> top
 
@@ -364,7 +358,7 @@ module WrappedIntervalsLatticeOps = struct
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if Z.(leq (add (cardinality s) (cardinality t)) (cardinality top)) then
-          interval (Bitvec.sub al bu) (Bitvec.sub au bl)
+          interval (sub al bu) (sub au bl)
         else top
     | _, _ -> top
 
@@ -381,13 +375,13 @@ module WrappedIntervalsLatticeOps = struct
         | ( Interval { lower = al; upper = au },
             Interval { lower = bl; upper = bu } ) ->
             let cond =
-              let al = Bitvec.to_unsigned_bigint al in
-              let au = Bitvec.to_unsigned_bigint au in
-              let bl = Bitvec.to_unsigned_bigint bl in
-              let bu = Bitvec.to_unsigned_bigint bu in
+              let al = to_unsigned_bigint al in
+              let au = to_unsigned_bigint au in
+              let bl = to_unsigned_bigint bl in
+              let bu = to_unsigned_bigint bu in
               Z.(lt (sub (mul au bu) (mul al bl)) (pow (of_int 2) w))
             in
-            if cond then interval (Bitvec.mul al bl) (Bitvec.mul au bu) else top
+            if cond then interval (mul al bl) (mul au bu) else top
         | _, _ -> top
       in
       let smul =
@@ -398,10 +392,10 @@ module WrappedIntervalsLatticeOps = struct
               Bitvec.(equal (extract ~hi:w ~lo:(w - 1) b) (ones ~size:1))
             in
             let cond (a, b) (c, d) =
-              let a = Bitvec.to_unsigned_bigint a in
-              let b = Bitvec.to_unsigned_bigint b in
-              let c = Bitvec.to_unsigned_bigint c in
-              let d = Bitvec.to_unsigned_bigint d in
+              let a = to_unsigned_bigint a in
+              let b = to_unsigned_bigint b in
+              let c = to_unsigned_bigint c in
+              let d = to_unsigned_bigint d in
               let res = Z.(sub (mul a b) (mul c d)) in
               Z.(lt res (pow (of_int 2) w))
               && Z.(lt (neg (pow (of_int 2) w)) res)
@@ -414,19 +408,19 @@ module WrappedIntervalsLatticeOps = struct
               && (not @@ msb_hi bu)
             in
             if (all_hi || all_lo) && cond (au, bu) (al, bl) then
-              interval (Bitvec.mul al bl) (Bitvec.mul au bu)
+              interval (mul al bl) (mul au bu)
             else if
               msb_hi al && msb_hi au
               && (not (msb_hi bl))
               && (not (msb_hi bu))
               && cond (au, bl) (al, bu)
-            then interval (Bitvec.mul al bu) (Bitvec.mul au bl)
+            then interval (mul al bu) (mul au bl)
             else if
               (not (msb_hi al))
               && (not (msb_hi au))
               && msb_hi bl && msb_hi bu
               && cond (al, bu) (au, bl)
-            then interval (Bitvec.mul au bl) (Bitvec.mul al bu)
+            then interval (mul au bl) (mul al bu)
             else top
         | _, _ -> top
       in
@@ -446,17 +440,17 @@ module WrappedIntervalsLatticeOps = struct
       | Some w -> w
       | None -> failwith "Cannot trim zeroes without known width"
     in
-    let zero = Bitvec.zero ~size:w in
+    let zero = zero ~size:w in
     match t.v with
     | Bot -> []
-    | Top -> [ interval (Bitvec.of_int ~size:w 1) (umax w) ]
+    | Top -> [ interval (of_int ~size:w 1) (umax w) ]
     | Interval { lower; upper } ->
-        if Bitvec.equal lower zero && Bitvec.equal upper zero then []
-        else if Bitvec.equal lower zero then
-          [ interval (Bitvec.of_int ~size:w 1) upper ]
-        else if Bitvec.equal upper zero then [ interval lower (umax w) ]
+        let equal = Bitvec.equal in
+        if equal lower zero && equal upper zero then []
+        else if equal lower zero then [ interval (of_int ~size:w 1) upper ]
+        else if equal upper zero then [ interval lower (umax w) ]
         else if member t.v zero then
-          [ interval lower (umax w); interval (Bitvec.of_int ~size:w 1) upper ]
+          [ interval lower (umax w); interval (of_int ~size:w 1) upper ]
         else [ t ]
 
   let udiv s t =
@@ -465,7 +459,7 @@ module WrappedIntervalsLatticeOps = struct
       match (s.v, t.v) with
       | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
         ->
-          interval (Bitvec.udiv al bu) (Bitvec.udiv au bl)
+          interval (udiv al bu) (udiv au bl)
       | _, _ -> top
     in
     infer s
@@ -498,16 +492,16 @@ module WrappedIntervalsLatticeOps = struct
           match (msb_hi al, msb_hi bl) with
           | true, true
             when not ((au = smin && bl = neg1) || (al = smin && bu = neg1)) ->
-              interval (Bitvec.sdiv au bl) (Bitvec.sdiv al bu)
+              interval (sdiv au bl) (sdiv al bu)
           | false, false
             when not ((al = smin && bu = neg1) || (au = smin && bl = neg1)) ->
-              interval (Bitvec.sdiv al bu) (Bitvec.sdiv au bl)
+              interval (sdiv al bu) (sdiv au bl)
           | true, false
             when not ((al = smin && bl = neg1) || (au = smin && bu = neg1)) ->
-              interval (Bitvec.sdiv al bl) (Bitvec.sdiv au bu)
+              interval (sdiv al bl) (sdiv au bu)
           | false, true
             when not ((au = smin && bu = neg1) && al = smin && bl = neg1) ->
-              interval (Bitvec.sdiv au bu) (Bitvec.sdiv al bl)
+              interval (sdiv au bu) (sdiv al bl)
           | _, _ -> top)
       | _, _ -> top
     in
@@ -540,36 +534,36 @@ module WrappedIntervalsLatticeOps = struct
     let min_or (al, au) (bl, bu) =
       let rec min_or_aux m =
         (* Lazy evaluation trick *)
-        let recurse _ = min_or_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
-
-        if Bitvec.is_zero m then Bitvec.bitor al bl
-        else if Bitvec.(is_nonzero (bitand (bitnot al) bl |> bitand m)) then
-          let temp = Bitvec.(bitor al m |> bitand (neg m)) in
-          if Bitvec.ule temp au then Bitvec.bitor temp bl else recurse ()
-        else if Bitvec.(is_nonzero (bitand al (bitnot bl) |> bitand m)) then
-          let temp = Bitvec.(bitor bl m |> bitand (neg m)) in
-          if Bitvec.ule temp bu then Bitvec.bitor al temp else recurse ()
+        let recurse _ = min_or_aux (lshr m (of_int ~size:(size m) 1)) in
+        let open Bitvec in
+        if is_zero m then bitor al bl
+        else if is_nonzero (bitand (bitnot al) bl |> bitand m) then
+          let temp = bitor al m |> bitand (neg m) in
+          if ule temp au then bitor temp bl else recurse ()
+        else if is_nonzero (bitand al (bitnot bl) |> bitand m) then
+          let temp = bitor bl m |> bitand (neg m) in
+          if ule temp bu then bitor al temp else recurse ()
         else recurse ()
       in
-      let init = smin (Bitvec.size al) in
+      let init = smin (size al) in
       min_or_aux init
     in
 
     let max_or (al, au) (bl, bu) =
       let rec max_or_aux m =
-        let one = Bitvec.(of_int ~size:(size m) 1) in
-        let recurse _ = max_or_aux Bitvec.(lshr m one) in
-
-        if Bitvec.is_zero m then Bitvec.bitor au bu
-        else if Bitvec.(is_nonzero (bitand au bu |> bitand m)) then
-          let tempau = Bitvec.(bitor (sub au m) (sub m one)) in
-          let tempbu = Bitvec.(bitor (sub bu m) (sub m one)) in
-          if Bitvec.uge tempau al then Bitvec.bitor tempau bu
-          else if Bitvec.uge tempbu bl then Bitvec.bitor au tempbu
+        let one = of_int ~size:(size m) 1 in
+        let recurse _ = max_or_aux (lshr m one) in
+        let open Bitvec in
+        if is_zero m then bitor au bu
+        else if is_nonzero (bitand au bu |> bitand m) then
+          let tempau = bitor (sub au m) (sub m one) in
+          let tempbu = bitor (sub bu m) (sub m one) in
+          if uge tempau al then bitor tempau bu
+          else if uge tempbu bl then bitor au tempbu
           else recurse ()
         else recurse ()
       in
-      let init = smin (Bitvec.size al) in
+      let init = smin (size al) in
       max_or_aux init
     in
     bitlogop min_or max_or
@@ -577,36 +571,36 @@ module WrappedIntervalsLatticeOps = struct
   let bitand =
     let min_and (al, au) (bl, bu) =
       let rec min_and_aux m =
-        let recurse _ = min_and_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
-
-        if Bitvec.is_zero m then Bitvec.bitand al bl
-        else if Bitvec.(is_nonzero (bitand (bitnot al) (bitnot bl) |> bitand m))
-        then
-          let tempal = Bitvec.(bitand (bitor al m) (neg m)) in
-          let tempbl = Bitvec.(bitand (bitor bl m) (neg m)) in
-          if Bitvec.ule tempal au then Bitvec.bitand tempal bl
-          else if Bitvec.ule tempbl bu then Bitvec.bitand al tempbl
+        let recurse _ = min_and_aux (lshr m (of_int ~size:(size m) 1)) in
+        let open Bitvec in
+        if is_zero m then bitand al bl
+        else if is_nonzero (bitand (bitnot al) (bitnot bl) |> bitand m) then
+          let tempal = bitand (bitor al m) (neg m) in
+          let tempbl = bitand (bitor bl m) (neg m) in
+          if ule tempal au then bitand tempal bl
+          else if ule tempbl bu then bitand al tempbl
           else recurse ()
         else recurse ()
       in
-      let init = smin (Bitvec.size al) in
+      let init = smin (size al) in
       min_and_aux init
     in
 
     let max_and (al, au) (bl, bu) =
       let rec max_and_aux m =
-        let one = Bitvec.(of_int ~size:(size m) 1) in
-        let recurse _ = max_and_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
-        if Bitvec.is_zero m then Bitvec.bitand au bu
-        else if Bitvec.(is_nonzero (bitand au (bitnot bu) |> bitand m)) then
-          let temp = Bitvec.(bitor (bitand au (bitnot m)) (sub m one)) in
-          if Bitvec.uge temp al then Bitvec.bitand temp bu else recurse ()
-        else if Bitvec.(is_nonzero (bitand (bitnot au) bu |> bitand m)) then
-          let temp = Bitvec.(bitor (bitand bu (bitnot m)) (sub m one)) in
-          if Bitvec.uge temp bl then Bitvec.bitand au temp else recurse ()
+        let one = of_int ~size:(size m) 1 in
+        let recurse _ = max_and_aux (lshr m (of_int ~size:(size m) 1)) in
+        let open Bitvec in
+        if is_zero m then bitand au bu
+        else if is_nonzero (bitand au (bitnot bu) |> bitand m) then
+          let temp = bitor (bitand au (bitnot m)) (sub m one) in
+          if uge temp al then bitand temp bu else recurse ()
+        else if is_nonzero (bitand (bitnot au) bu |> bitand m) then
+          let temp = bitor (bitand bu (bitnot m)) (sub m one) in
+          if uge temp bl then bitand au temp else recurse ()
         else recurse ()
       in
-      let init = smin (Bitvec.size al) in
+      let init = smin (size al) in
       max_and_aux init
     in
     bitlogop min_and max_and
@@ -614,41 +608,41 @@ module WrappedIntervalsLatticeOps = struct
   let bitxor =
     let min_xor (al, au) (bl, bu) =
       let rec min_xor_aux m (al, au) (bl, bu) =
-        let recurse = min_xor_aux Bitvec.(lshr m (of_int ~size:(size m) 1)) in
-
-        if Bitvec.is_zero m then Bitvec.bitxor al bl
-        else if Bitvec.(is_nonzero (bitand (bitnot al) bl |> bitand m)) then
-          let temp = Bitvec.(bitor al m |> bitand (neg m)) in
-          let al = if Bitvec.ule temp au then Bitvec.bitor temp bl else al in
+        let recurse = min_xor_aux (lshr m (of_int ~size:(size m) 1)) in
+        let open Bitvec in
+        if is_zero m then bitxor al bl
+        else if is_nonzero (bitand (bitnot al) bl |> bitand m) then
+          let temp = bitor al m |> bitand (neg m) in
+          let al = if ule temp au then bitor temp bl else al in
           recurse (al, au) (bl, bu)
-        else if Bitvec.(is_nonzero (bitand al (bitnot bl) |> bitand m)) then
-          let temp = Bitvec.(bitor bl m |> bitand (neg m)) in
-          let bl = if Bitvec.ule temp bu then Bitvec.bitor al temp else bl in
+        else if is_nonzero (bitand al (bitnot bl) |> bitand m) then
+          let temp = bitor bl m |> bitand (neg m) in
+          let bl = if ule temp bu then bitor al temp else bl in
           recurse (al, au) (bl, bu)
         else recurse (al, au) (bl, bu)
       in
-      let init = smin (Bitvec.size al) in
+      let init = smin (size al) in
       min_xor_aux init (al, au) (bl, bu)
     in
 
     let max_xor (al, au) (bl, bu) =
       let rec max_xor_aux m (al, au) (bl, bu) =
-        let one = Bitvec.(of_int ~size:(size m) 1) in
-        let recurse = max_xor_aux Bitvec.(lshr m one) in
-
-        if Bitvec.is_zero m then Bitvec.bitxor au bu
-        else if Bitvec.(is_nonzero (bitand au bu |> bitand m)) then
-          let tempau = Bitvec.(bitor (sub au m) (sub m one)) in
-          let tempbu = Bitvec.(bitor (sub bu m) (sub m one)) in
+        let one = of_int ~size:(size m) 1 in
+        let recurse = max_xor_aux (lshr m one) in
+        let open Bitvec in
+        if is_zero m then bitxor au bu
+        else if is_nonzero (bitand au bu |> bitand m) then
+          let tempau = bitor (sub au m) (sub m one) in
+          let tempbu = bitor (sub bu m) (sub m one) in
           let au, bu =
-            if Bitvec.uge tempau al then (tempau, bu)
-            else if Bitvec.uge tempbu bl then (au, tempbu)
+            if uge tempau al then (tempau, bu)
+            else if uge tempbu bl then (au, tempbu)
             else (au, bu)
           in
           recurse (al, au) (bl, bu)
         else recurse (al, au) (bl, bu)
       in
-      let init = smin (Bitvec.size al) in
+      let init = smin (size al) in
       max_xor_aux init (al, au) (bl, bu)
     in
     bitlogop min_xor max_xor
@@ -663,12 +657,12 @@ module WrappedIntervalsLatticeOps = struct
           | Some w -> w
           | None -> failwith "Cannot truncate without known width"
         in
-        if w < k then interval (Bitvec.zero ~size:0) (Bitvec.zero ~size:0)
+        if w < k then interval (zero ~size:0) (zero ~size:0)
         else
-          let truncl = Bitvec.extract ~hi:k ~lo:0 lower in
-          let truncu = Bitvec.extract ~hi:k ~lo:0 upper in
-          let shiftl = Bitvec.(ashr lower (of_int ~size:w k)) in
-          let shiftu = Bitvec.(ashr upper (of_int ~size:w k)) in
+          let truncl = extract ~hi:k ~lo:0 lower in
+          let truncu = extract ~hi:k ~lo:0 upper in
+          let shiftl = ashr lower (of_int ~size:w k) in
+          let shiftu = ashr upper (of_int ~size:w k) in
           if
             Bitvec.(
               (equal shiftl shiftu && ule truncl truncu)
@@ -692,16 +686,15 @@ module WrappedIntervalsLatticeOps = struct
             let lower = Bitvec.zero_extend ~extension:k lower in
             let upper = Bitvec.zero_extend ~extension:k upper in
             interval
-              Bitvec.(shl lower (of_int ~size:w k))
-              Bitvec.(shl upper (of_int ~size:w k))
+              (shl lower (of_int ~size:w k))
+              (shl upper (of_int ~size:w k))
         | _ ->
-            interval (Bitvec.zero ~size:w)
-              Bitvec.(concat (ones ~size:(w - k)) (zero ~size:k))
+            interval (zero ~size:w) (concat (ones ~size:(w - k)) (zero ~size:k))
     in
     match is_singleton k with
     | Some k ->
         shl_const t
-          ( Bitvec.to_unsigned_bigint k |> fun k ->
+          ( to_unsigned_bigint k |> fun k ->
             if Z.fits_int k then Z.to_int k
             else
               match t.w with
@@ -719,22 +712,21 @@ module WrappedIntervalsLatticeOps = struct
           | None -> failwith "Cannot logical shift right without known width"
         in
         let fallback =
-          interval (Bitvec.zero ~size:w)
-            Bitvec.(concat (zero ~size:k) (ones ~size:(w - k)))
+          interval (zero ~size:w) (concat (zero ~size:k) (ones ~size:(w - k)))
         in
         if compare (sp w) t <= 0 then fallback
         else
           match t.v with
           | Interval { lower; upper } ->
               interval
-                Bitvec.(lshr lower (of_int ~size:w k))
-                Bitvec.(lshr upper (of_int ~size:w k))
+                (lshr lower (of_int ~size:w k))
+                (lshr upper (of_int ~size:w k))
           | _ -> fallback
     in
     match is_singleton k with
     | Some k ->
         lshr_const t
-          ( Bitvec.to_unsigned_bigint k |> fun k ->
+          ( to_unsigned_bigint k |> fun k ->
             if Z.fits_int k then Z.to_int k
             else
               match t.w with
@@ -755,22 +747,22 @@ module WrappedIntervalsLatticeOps = struct
         let fallback =
           let k = min k w in
           interval
-            Bitvec.(concat (ones ~size:k) (zero ~size:(w - k)))
-            Bitvec.(concat (zero ~size:k) (ones ~size:(w - k)))
+            (concat (ones ~size:k) (zero ~size:(w - k)))
+            (concat (zero ~size:k) (ones ~size:(w - k)))
         in
         if compare (np w) t <= 0 then fallback
         else
           match t.v with
           | Interval { lower; upper } ->
               interval
-                Bitvec.(ashr lower (of_int ~size:w k))
-                Bitvec.(ashr upper (of_int ~size:w k))
+                (ashr lower (of_int ~size:w k))
+                (ashr upper (of_int ~size:w k))
           | _ -> fallback
     in
     match is_singleton k with
     | Some k ->
         ashr_const t
-          ( Bitvec.to_unsigned_bigint k |> fun k ->
+          ( to_unsigned_bigint k |> fun k ->
             if Z.fits_int k then Z.to_int k
             else
               match t.w with
@@ -790,7 +782,7 @@ module WrappedIntervalsLatticeOps = struct
         | Some w -> w
         | None -> failwith "Cannot extract without known width"
       in
-      let k = Bitvec.of_int ~size:w lo in
+      let k = of_int ~size:w lo in
       assert (hi <= w);
       truncate (lshr t (interval k k)) (hi - lo)
 
@@ -808,20 +800,16 @@ module WrappedIntervalsLatticeOps = struct
         { w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w); v = Top }
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
-        interval (Bitvec.concat al bl) (Bitvec.concat au bu)
+        interval (concat al bl) (concat au bu)
     | Interval { lower = al; upper = au }, Top ->
-        interval
-          Bitvec.(concat al (zero ~size:tw))
-          Bitvec.(concat au (ones ~size:tw))
+        interval (concat al (zero ~size:tw)) (concat au (ones ~size:tw))
     | Top, Interval { lower = bl; upper = bu } ->
         let sw =
           match s.w with
           | Some w -> w
           | None -> failwith "Cannot concat without known width"
         in
-        interval
-          Bitvec.(concat (zero ~size:sw) bl)
-          Bitvec.(concat (ones ~size:sw) bu)
+        interval (concat (zero ~size:sw) bl) (concat (ones ~size:sw) bu)
 end
 
 module WrappedIntervalsValueAbstraction = struct
@@ -832,7 +820,7 @@ module WrappedIntervalsValueAbstraction = struct
     | `Bool _ -> { w = Some 1; v = Top }
     | `Integer _ -> { w = Some 0; v = Top }
     | `Bitvector bv ->
-        if Bitvec.size bv = 0 then { w = Some 0; v = Top } else interval bv bv
+        if size bv = 0 then { w = Some 0; v = Top } else interval bv bv
 
   let eval_unop (op : Lang.Ops.AllOps.unary) a =
     match op with
