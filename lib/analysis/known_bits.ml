@@ -1,7 +1,9 @@
 open Bincaml_util.Common
 open Bincaml_util.Bitvec
 
-(* https://arxiv.org/pdf/2105.05398 *)
+(* The tnum representation (value-mask pairs for tracking bitwise uncertainty) 
+   is based on the tristate numbers domain from the Linux kernel's eBPF verifier,
+   as described in: https://arxiv.org/pdf/2105.05398 *)
 
 module IsKnownLattice = struct
   let name = "tnum"
@@ -24,9 +26,9 @@ module IsKnownLattice = struct
         let rec result acc i v m =
           if i >= tnum_size then acc
           else
-            let one = of_int ~size:(size v) 1 in
-            let mask_bit = is_nonzero @@ bitand m one in
-            let value_bit = is_nonzero @@ bitand v one in
+            let one = (of_int ~size:(size v) 1) in
+            let mask_bit = (is_nonzero @@ bitand m one) in
+            let value_bit = (is_nonzero @@ bitand v one) in
 
             let bit_str =
               if mask_bit then "μ" else if value_bit then "1" else "0"
@@ -61,7 +63,9 @@ module IsKnownLattice = struct
     | Bot, x | x, Bot -> x
     | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
         let mask = bitxor av bv |> bitor am |> bitor bm in
-        let value = bitnot mask |> bitand @@ bitand av bv in
+        let value =
+          bitnot mask |> bitand @@ bitand av bv
+        in
         tnum value mask
 
   let widening a b = join a b
@@ -82,14 +86,19 @@ module IsKnownBitsOps = struct
 
   let tnum_zero_extend k =
     bind1 (fun (v, m) ->
-        tnum (zero_extend ~extension:k v) (zero_extend ~extension:k m))
+        tnum
+          (zero_extend ~extension:k v)
+          (zero_extend ~extension:k m))
 
   let tnum_sign_extend k =
     bind1 (fun (v, m) ->
-        tnum (sign_extend ~extension:k v) (zero_extend ~extension:k m))
+        tnum
+          (sign_extend ~extension:k v)
+          (zero_extend ~extension:k m))
 
   let tnum_extract (hi, lo) =
-    bind1 (fun (v, m) -> tnum (extract ~hi ~lo v) (extract ~hi ~lo m))
+    bind1 (fun (v, m) ->
+        tnum (extract ~hi ~lo v) (extract ~hi ~lo m))
 
   let tnum_bitnot = bind1 (fun (v, m) -> tnum (bitnot @@ bitor v m) m)
 
@@ -98,18 +107,18 @@ module IsKnownBitsOps = struct
         let v = bitand av bv in
         let alpha = bitor av am in
         let beta = bitor bv bm in
-        let m = bitand (bitnot v) @@ bitand alpha beta in
+        let m = (bitand (bitnot v) @@ bitand alpha beta) in
         tnum v m)
 
   let tnum_bitor =
     bind2 (fun (av, am) (bv, bm) ->
-        let v = bitor av bv in
-        let m = bitand (bitor am bm) (bitnot v) in
+        let v = (bitor av bv) in
+        let m = (bitand (bitor am bm) (bitnot v)) in
         tnum v m)
 
   let tnum_bitxor =
     bind2 (fun (av, am) (bv, bm) ->
-        let v = bitand (bitxor av bv) (bitnot @@ bitor am bm) in
+        let v = (bitand (bitxor av bv) (bitnot @@ bitor am bm)) in
         tnum v (bitor am bm))
 
   let tnum_add =
@@ -118,7 +127,7 @@ module IsKnownBitsOps = struct
         let sv = add av bv in
         let sigma = add sv sm in
         let chi = bitxor sigma sv in
-        let mu = bitor chi (bitor am bm) in
+        let mu = (bitor chi (bitor am bm)) in
         tnum (bitand sv (bitnot mu)) mu)
 
   let tnum_sub =
@@ -127,36 +136,54 @@ module IsKnownBitsOps = struct
         let alpha = add dv am in
         let beta = sub dv bm in
         let xi = bitxor alpha beta in
-        let last = bitor xi (bitor am bm) in
+        let last = (bitor xi (bitor am bm)) in
         tnum (bitand dv (bitnot last)) last)
 
   let tnum_neg =
     bind1 (fun (v, m) ->
-        let zero = zero ~size:(size v) in
+        let zero = (zero ~size:(size v)) in
         tnum_sub (known zero) (tnum v m))
 
   let tnum_shl =
     bind2 (fun (av, am) (bv, bm) ->
-        if is_nonzero bm then Top else tnum (shl av bv) (shl am bv))
+        if is_nonzero bm then Top
+        else tnum (shl av bv) (shl am bv))
 
   let tnum_lshr =
     bind2 (fun (av, am) (bv, bm) ->
-        if is_nonzero bm then Top else tnum (lshr av bv) (shl am bv))
+        if is_nonzero bm then Top
+        else tnum (lshr av bv) (shl am bv))
 
   let tnum_ashr =
     bind2 (fun (av, am) (bv, bm) ->
-        if is_nonzero bm then Top else tnum (ashr av bv) (shl am bv))
+        if is_nonzero bm then Top
+        else tnum (ashr av bv) (shl am bv))
 
-  let tnum_mul =
+
+   (* This implementation resembles Listing 3 (our_mul_simplified) from https://arxiv.org/pdf/2105.05398.
+   The value-mask decomposition (accv, accm) allows separating certain and 
+   uncertain bit contributions, postponing the addition of uncertain bits 
+   until the final step, making it easier to reason about in a functional context.
+   
+   The key optimization from Listing 4 (our_mul) that is incorporated here is
+   the early termination condition: if (is_zero @@ bitor av am), which checks 
+   if both av and am are zero. This stops iterating when there are no more bits 
+   to process in P, rather than always running for exactly bitwidth iterations 
+   like Listing 3.
+   
+   Unlike Listing 4, the OCaml implementation avoids the direct multiplication 
+   optimization (ACCv := P.v * Q.v) and instead builds the certain-bit product 
+   incrementally through recursive additions. *)
+   let tnum_mul =
     bind2 (fun (av, am) (bv, bm) ->
         let t_zero = known (of_int ~size:(size av) 0) in
-        let one = of_int ~size:(size av) 1 in
+        let one = (of_int ~size:(size av) 1) in
 
         let rec tnum_mul_aux accv accm a b =
           let av, am = a in
           let bv, bm = b in
 
-          if is_zero @@ bitor av am then tnum_add accv accm
+          if (is_zero @@ bitor av am) then tnum_add accv accm
           else
             let a_lsb = bitand av one in
             let a_mask_lsb = bitand am one in
@@ -168,16 +195,20 @@ module IsKnownBitsOps = struct
                   (tnum av am)
               in
               let b_next =
-                bind1 (fun (v, m) -> tnum (shl v one) (shl m one)) b_tnum
+                bind1
+                  (fun (v, m) -> tnum (shl v one) (shl m one))
+                  b_tnum
               in
               bind2 (tnum_mul_aux accv accm) a_next b_next
             in
 
-            if is_nonzero a_lsb then
+            if (is_nonzero a_lsb) then
               let accv' = tnum_add accv (known bv) in
               recurse accv' accm
-            else if is_nonzero a_mask_lsb then
-              let accm' = tnum_add accm (tnum (of_int ~size:(size bm) 0) bm) in
+            else if (is_nonzero a_mask_lsb) then
+              let accm' =
+                tnum_add accm (tnum (of_int ~size:(size bm) 0) bm)
+              in
               recurse accv accm'
             else recurse accv accm
         in
