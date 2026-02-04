@@ -1,3 +1,22 @@
+(** Wrapped Intervals model a range of values on a circle, allowing both
+    unsigned and signed interpretation whilst maintaining precision in
+    intermediate steps.
+
+    Based on the APLAS12 paper "Signedness-Agnostic Program Analysis: Precise
+    Integer Bounds for Low-Level Code" by Navas, Schachte, Søndergaard, and
+    Stuckey (doi: 10.1007/978-3-642-35182-2_9).
+
+    Implementation in the Crab Static Analyser used as a general reference and
+    for the unsigned and signed division functions.
+    https://github.com/seahorn/crab/blob/418b63c66b91f04bf36ae59d5eecb936c48836ee/include/crab/domains/wrapped_interval_impl.hpp
+
+    Algorithms for bitwise operations on unsigned intervals used for building
+    signedness agnostic versions were adapted from Chapter 4.3 of Hacker's
+    Delight (Second Edition) by Henry S. Warren.
+
+    Further details about implementation can be found in
+    docs/dev/wrapped_intervals.pdf *)
+
 open Bincaml_util.Common
 open Bitvec
 
@@ -32,14 +51,16 @@ module WrappedIntervalsLattice = struct
          else Interval { lower; upper });
     }
 
-  let infer { w = w1; v = a } { w = w2; v = b } =
-    match (w1, w2) with
-    | Some w1, Some w2 ->
-        (* assert (w1 = w2); *)
-        ({ w = Some w1; v = a }, { w = Some w2; v = b })
-    | Some w1, None -> ({ w = Some w1; v = a }, { w = Some w1; v = b })
-    | None, Some w2 -> ({ w = Some w2; v = a }, { w = Some w2; v = b })
-    | None, None -> ({ w = None; v = a }, { w = None; v = b })
+  let infer a b =
+    let w =
+      match (a.w, b.w) with
+      | Some a, Some b ->
+          assert (a = b);
+          Some a
+      | Some a, None | None, Some a -> Some a
+      | None, None -> None
+    in
+    ({ a with w }, { b with w })
 
   let umin width = zero ~size:width
   let umax width = ones ~size:width
@@ -151,8 +172,11 @@ module WrappedIntervalsLattice = struct
           complement (interval bl au)
       | _, _ -> infer a bottom |> snd
     in
-    (* APLAS12 mentions "last cases are omitted", does not specify which cases. *)
-    let extend a b = join a b in
+    (*
+      Paper mentions last cases of join are omitted for extend, but does not specify which cases.
+      In practice, just using join as is works.
+    *)
+    let extend = join in
     let sorted =
       List.sort
         (fun s t ->
@@ -433,7 +457,11 @@ module WrappedIntervalsLatticeOps = struct
             (cut s))
     |> snd
 
-  (* Division implementation derived from Crab *)
+  (* 
+    Division implementation derived from Crab
+    https://github.com/seahorn/crab/blob/418b63c66b91f04bf36ae59d5eecb936c48836ee/include/crab/domains/wrapped_interval_impl.hpp#L1034-L1091
+    https://github.com/seahorn/crab/blob/418b63c66b91f04bf36ae59d5eecb936c48836ee/include/crab/domains/wrapped_interval_impl.hpp#L210-L297
+  *)
   let trim_zeroes t =
     let w =
       match t.w with
