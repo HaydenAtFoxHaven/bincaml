@@ -50,6 +50,14 @@ module PassManager = struct
       doc = "runs truthiness analysis on dataflow graph and prints results";
     }
 
+  let dfg_wrapped_int =
+    {
+      name = "demo-dfg-wrapped-int-analysis";
+      apply = DFGAnalysis (module Analysis.Wrapped_intervals.Analysis);
+      doc =
+        "Runs wrapped interval analysis on dataflow graph and prints results";
+    }
+
   let remove_unused =
     {
       name = "remove-unused-decls";
@@ -87,6 +95,7 @@ module PassManager = struct
   let passes =
     [
       dfg_bool;
+      dfg_wrapped_int;
       sparams;
       read_uninit false;
       read_uninit true;
