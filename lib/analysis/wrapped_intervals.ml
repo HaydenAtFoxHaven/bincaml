@@ -815,29 +815,32 @@ module WrappedIntervalsLatticeOps = struct
       truncate (lshr t (interval k k)) (hi - lo)
 
   let concat s t =
-    let tw =
-      match t.w with
-      | Some w -> w
-      | None -> failwith "Cannot concat without known width"
-    in
-    let t = if compare (sp tw) t <= 0 then { w = t.w; v = Top } else t in
-    match (s.v, t.v) with
-    | Bot, _ | _, Bot ->
-        { w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w); v = Bot }
-    | Top, Top ->
-        { w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w); v = Top }
-    | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
-      ->
-        interval (concat al bl) (concat au bu)
-    | Interval { lower = al; upper = au }, Top ->
-        interval (concat al (zero ~size:tw)) (concat au (ones ~size:tw))
-    | Top, Interval { lower = bl; upper = bu } ->
-        let sw =
-          match s.w with
-          | Some w -> w
-          | None -> failwith "Cannot concat without known width"
-        in
-        interval (concat (zero ~size:sw) bl) (concat (ones ~size:sw) bu)
+    match t.w with
+    | None -> top
+    | Some tw -> (
+        let t = if compare (sp tw) t <= 0 then { w = t.w; v = Top } else t in
+        match (s.v, t.v) with
+        | Bot, _ | _, Bot ->
+            {
+              w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w);
+              v = Bot;
+            }
+        | Top, Top ->
+            {
+              w = Option.bind s.w (fun u -> Option.map (Int.add u) t.w);
+              v = Top;
+            }
+        | ( Interval { lower = al; upper = au },
+            Interval { lower = bl; upper = bu } ) ->
+            interval (concat al bl) (concat au bu)
+        | Interval { lower = al; upper = au }, Top ->
+            interval (concat al (zero ~size:tw)) (concat au (ones ~size:tw))
+        | Top, Interval { lower = bl; upper = bu } -> (
+            match s.w with
+            | None -> top
+            | Some sw ->
+                interval (concat (zero ~size:sw) bl) (concat (ones ~size:sw) bu)
+            ))
 end
 
 module WrappedIntervalsValueAbstraction = struct
@@ -851,30 +854,34 @@ module WrappedIntervalsValueAbstraction = struct
         if size bv = 0 then { w = Some 0; v = Top } else interval bv bv
 
   let eval_unop (op : Lang.Ops.AllOps.unary) a =
-    match op with
-    | `BVNEG -> neg a
-    | `BVNOT -> bitnot a
-    | `ZeroExtend k -> zero_extend a k
-    | `SignExtend k -> sign_extend a k
-    | `Extract (hi, lo) -> extract ~hi ~lo a
-    | _ -> infer a top |> snd
+    if Option.is_none a.w then top
+    else
+      match op with
+      | `BVNEG -> neg a
+      | `BVNOT -> bitnot a
+      | `ZeroExtend k -> zero_extend a k
+      | `SignExtend k -> sign_extend a k
+      | `Extract (hi, lo) -> extract ~hi ~lo a
+      | _ -> infer a top |> snd
 
   let eval_binop (op : Lang.Ops.AllOps.binary) a b =
     let a, b = infer a b in
-    match op with
-    | `BVADD -> add a b
-    | `BVSUB -> sub a b
-    | `BVMUL -> mul a b
-    | `BVUDIV -> udiv a b
-    | `BVSDIV -> sdiv a b
-    | `BVOR -> bitor a b
-    | `BVAND -> bitand a b
-    | `BVNAND -> bitand a b |> bitnot
-    | `BVXOR -> bitxor a b
-    | `BVASHR -> ashr a b
-    | `BVLSHR -> lshr a b
-    | `BVSHL -> shl a b
-    | _ -> infer a top |> snd
+    if Option.is_none a.w then top
+    else
+      match op with
+      | `BVADD -> add a b
+      | `BVSUB -> sub a b
+      | `BVMUL -> mul a b
+      | `BVUDIV -> udiv a b
+      | `BVSDIV -> sdiv a b
+      | `BVOR -> bitor a b
+      | `BVAND -> bitand a b
+      | `BVNAND -> bitand a b |> bitnot
+      | `BVXOR -> bitxor a b
+      | `BVASHR -> ashr a b
+      | `BVLSHR -> lshr a b
+      | `BVSHL -> shl a b
+      | _ -> infer a top |> snd
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) args =
     let op =
