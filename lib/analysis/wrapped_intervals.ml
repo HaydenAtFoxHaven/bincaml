@@ -208,8 +208,8 @@ module WrappedIntervalsLattice = struct
     match (a, b) with
     | _, Bot -> s
     | Bot, _ -> t
-    | _, Top -> s
-    | Top, _ -> t
+    | _, Top -> t
+    | Top, _ -> s
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         size_is_equal al bl;
@@ -902,12 +902,50 @@ module WrappedIntervalsValueAbstraction = struct
     | None -> { w = Some 0; v = Top }
 end
 
-module StateAbstraction = Intra_analysis.MapState (WrappedIntervalsLattice)
-
 module WrappedIntervalsValueAbstractionBasil = struct
   include WrappedIntervalsValueAbstraction
   module E = Lang.Expr.BasilExpr
 end
 
-include
-  Dataflow_graph.EasyForwardAnalysisPack (WrappedIntervalsValueAbstractionBasil)
+module StateAbstraction =
+  Intra_analysis.MapState (WrappedIntervalsValueAbstractionBasil)
+
+module Eval =
+  Intra_analysis.EvalStmt
+    (WrappedIntervalsValueAbstractionBasil)
+    (StateAbstraction)
+
+module Domain = struct
+  include StateAbstraction
+
+  let top_val = WrappedIntervalsLattice.top
+
+  let init p =
+    let vs = Lang.Procedure.formal_in_params p |> StringMap.values in
+    vs
+    |> Iter.map (fun v -> (v, top_val))
+    |> Iter.fold (fun m (v, d) -> update v d m) bottom
+
+  let transfer dom stmt =
+    let stmt = Eval.stmt_eval_fwd stmt dom in
+    let updates =
+      match stmt with
+      | Lang.Stmt.Instr_Assign ls -> List.to_iter ls
+      | Lang.Stmt.Instr_Assert _ -> Iter.empty
+      | Lang.Stmt.Instr_Assume _ -> Iter.empty
+      | Lang.Stmt.Instr_Load { lhs } -> Iter.singleton (lhs, top_val)
+      | Lang.Stmt.Instr_Store { lhs } -> Iter.singleton (lhs, top_val)
+      | Lang.Stmt.Instr_IntrinCall { lhs } ->
+          StringMap.values lhs |> Iter.map (fun v -> (v, top_val))
+      | Lang.Stmt.Instr_Call { lhs } ->
+          StringMap.values lhs |> Iter.map (fun v -> (v, top_val))
+      | Lang.Stmt.Instr_IndirectCall _ -> Iter.empty
+    in
+    Iter.fold (fun a (k, v) -> update k v a) dom updates
+end
+
+module Analysis = Dataflow_graph.AnalysisFwd (Domain)
+
+let analyse (p : Lang.Program.proc) =
+  let g = Dataflow_graph.create p in
+  Analysis.analyse ~widen_set:Graph.ChaoticIteration.FromWto ~delay_widen:50 g
