@@ -142,11 +142,11 @@ module IsKnownBitsOps = struct
 
   let tnum_lshr =
     bind2 (fun (av, am) (bv, bm) ->
-        if is_nonzero bm then Top else tnum (lshr av bv) (shl am bv))
+        if is_nonzero bm then Top else tnum (lshr av bv) (lshr am bv))
 
   let tnum_ashr =
     bind2 (fun (av, am) (bv, bm) ->
-        if is_nonzero bm then Top else tnum (ashr av bv) (shl am bv))
+        if is_nonzero bm then Top else tnum (ashr av bv) (ashr am bv))
 
   (* This implementation resembles Listing 3 (our_mul_simplified) from https://arxiv.org/pdf/2105.05398.
    The value-mask decomposition (accv, accm) allows separating certain and 
