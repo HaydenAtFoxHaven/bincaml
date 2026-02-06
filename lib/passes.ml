@@ -171,9 +171,8 @@ module PassManager = struct
         |> Iter.iter (fun (pn, p) ->
             let g = Analysis.Dataflow_graph.create p in
             let r =
-              D.analyse
-                ~widen_set:(Graph.ChaoticIteration.Predicate (fun _ -> false))
-                ~delay_widen:0 g
+              D.analyse ~widen_set:Graph.ChaoticIteration.FromWto
+                ~delay_widen:10 g
             in
             print_endline (D.D.name ^ " :: " ^ ID.to_string pn);
             print_endline

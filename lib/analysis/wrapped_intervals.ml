@@ -862,6 +862,7 @@ module WrappedIntervalsValueAbstraction = struct
       | `ZeroExtend k -> zero_extend a k
       | `SignExtend k -> sign_extend a k
       | `Extract (hi, lo) -> extract ~hi ~lo a
+      | `BOOLTOBV1 -> { w = Some 1; v = Top }
       | _ -> infer a top |> snd
 
   let eval_binop (op : Lang.Ops.AllOps.binary) a b =
