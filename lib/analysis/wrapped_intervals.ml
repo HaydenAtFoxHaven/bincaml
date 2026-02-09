@@ -927,13 +927,113 @@ module Domain = struct
     |> Iter.map (fun v -> (v, top_val))
     |> Iter.fold (fun m (v, d) -> update v d m) bottom
 
+  let rec eval_pred dom op l r =
+    let read = flip read dom in
+    let abstract_eval = Eval.EV.eval read in
+    let open WrappedIntervalsLattice in
+    let meet s t = lub @@ intersect s t in
+    let left_reduce l r =
+      let ineq f =
+        match r.v with
+        | Bot -> Some { l with v = Bot }
+        | Top -> Some l
+        | Interval { lower; upper } -> Option.map (f lower upper) r.w
+      in
+      match op with
+      | `BVULE ->
+          ineq (fun _ upper w ->
+              if member r.v (umax w) then l
+              else meet l @@ interval (umin w) upper)
+      | `BVULT ->
+          ineq (fun _ upper w ->
+              if member r.v (umax w) then l
+              else if Bitvec.equal upper (umin w) then { l with v = Bot }
+              else
+                meet l
+                @@ interval (umin w) Bitvec.(sub upper @@ of_int ~size:w 1))
+      | `BVSLE ->
+          ineq (fun _ upper w ->
+              if member r.v (smax w) then l
+              else meet l @@ interval (smin w) upper)
+      | `BVSLT ->
+          ineq (fun _ upper w ->
+              if member r.v (smax w) then l
+              else if Bitvec.equal upper (smin w) then { l with v = Bot }
+              else
+                meet l
+                @@ interval (smin w) Bitvec.(sub upper @@ of_int ~size:w 1))
+      | `EQ -> Some (meet l r)
+      | `NEQ -> Some (meet l (complement r))
+      | _ -> None
+    in
+    let right_reduce l r =
+      let ineq f =
+        match l.v with
+        | Bot -> Some { r with v = Bot }
+        | Top -> Some r
+        | Interval { lower; upper } -> Option.map (f lower upper) l.w
+      in
+      match op with
+      | `BVULE ->
+          ineq (fun lower _ w ->
+              if member l.v (umin w) then r
+              else meet r @@ interval lower (umax w))
+      | `BVULT ->
+          ineq (fun lower _ w ->
+              if member l.v (umin w) then r
+              else if Bitvec.equal lower (umax w) then { r with v = Bot }
+              else
+                meet r
+                @@ interval Bitvec.(add lower @@ of_int ~size:w 1) (umax w))
+      | `BVSLE ->
+          ineq (fun lower _ w ->
+              if member l.v (smin w) then r
+              else meet r @@ interval lower (smax w))
+      | `BVSLT ->
+          ineq (fun lower _ w ->
+              if member l.v (smin w) then r
+              else if Bitvec.equal lower (smax w) then { r with v = Bot }
+              else
+                meet r
+                @@ interval Bitvec.(add lower @@ of_int ~size:w 1) (smax w))
+      | `EQ -> Some (meet l r)
+      | `NEQ -> Some (meet l (complement r))
+      | _ -> None
+    in
+    let open Lang.Expr.AbstractExpr in
+    match (l, r) with
+    | RVar lv, RVar rv ->
+        let l = read lv in
+        let r = read rv in
+        Iter.append
+          (left_reduce l r |> Option.map (fun e -> (lv, e)) |> Iter.of_opt)
+          (right_reduce l r |> Option.map (fun e -> (rv, e)) |> Iter.of_opt)
+    | RVar lv, rexpr ->
+        let l = read lv in
+        let r = abstract_eval (Lang.Expr.BasilExpr.fix rexpr) in
+        left_reduce l r |> Option.map (fun e -> (lv, e)) |> Iter.of_opt
+    | lexpr, RVar rv ->
+        let l = abstract_eval (Lang.Expr.BasilExpr.fix lexpr) in
+        let r = read rv in
+        right_reduce l r |> Option.map (fun e -> (rv, e)) |> Iter.of_opt
+    | _ -> Iter.empty
+
   let transfer dom stmt =
-    let stmt = Eval.stmt_eval_fwd stmt dom in
-    let updates =
+    let evald_stmt = Eval.stmt_eval_fwd stmt dom in
+    let open Lang.Expr in
+    let pred_updates : (key_t * val_t) Iter.t =
       match stmt with
+      | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body; _ }
+        -> (
+          match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix body) with
+          | BinaryExpr (op, l, r) -> eval_pred dom op l r
+          | _ -> Iter.empty)
+      | _ -> Iter.empty
+    in
+    let updates =
+      match evald_stmt with
       | Lang.Stmt.Instr_Assign ls -> List.to_iter ls
-      | Lang.Stmt.Instr_Assert _ -> Iter.empty
-      | Lang.Stmt.Instr_Assume _ -> Iter.empty
+      | Lang.Stmt.Instr_Assert _ | Lang.Stmt.Instr_Assume _ -> Iter.empty
       | Lang.Stmt.Instr_Load { lhs } -> Iter.singleton (lhs, top_val)
       | Lang.Stmt.Instr_Store { lhs } -> Iter.singleton (lhs, top_val)
       | Lang.Stmt.Instr_IntrinCall { lhs } ->
@@ -942,7 +1042,8 @@ module Domain = struct
           StringMap.values lhs |> Iter.map (fun v -> (v, top_val))
       | Lang.Stmt.Instr_IndirectCall _ -> Iter.empty
     in
-    Iter.fold (fun a (k, v) -> update k v a) dom updates
+    Iter.fold (fun a (k, v) -> update k v a) dom
+    @@ Iter.append updates pred_updates
 end
 
 module Analysis = Dataflow_graph.AnalysisFwd (Domain)
