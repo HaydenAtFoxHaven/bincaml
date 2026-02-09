@@ -9,7 +9,7 @@
   lattice_types
   wrapped_intervals
   known_bits
-  reduced_product)
+  tnum_wint_reduced_product)
  (libraries
   patricia-tree
   loader
