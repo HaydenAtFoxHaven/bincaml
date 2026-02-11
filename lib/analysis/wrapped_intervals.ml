@@ -1023,8 +1023,7 @@ module Domain = struct
     let open Lang.Expr in
     let pred_updates : (key_t * val_t) Iter.t =
       match stmt with
-      | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body; _ }
-        -> (
+      | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body } -> (
           match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix body) with
           | BinaryExpr (op, l, r) -> eval_pred dom op l r
           | _ -> Iter.empty)
@@ -1046,8 +1045,8 @@ module Domain = struct
     @@ Iter.append updates pred_updates
 end
 
-module Analysis = Dataflow_graph.AnalysisFwd (Domain)
+module Analysis = Intra_analysis.Forwards (Domain)
 
 let analyse (p : Lang.Program.proc) =
-  let g = Dataflow_graph.create p in
-  Analysis.analyse ~widen_set:Graph.ChaoticIteration.FromWto ~delay_widen:50 g
+  Analysis.analyse ~widening_set:Graph.ChaoticIteration.FromWto
+    ~widening_delay:50 p

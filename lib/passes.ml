@@ -17,6 +17,7 @@ module PassManager = struct
     | Batch of pass list  (** Run passes in sequence *)
     | DFGAnalysis of (module Analysis.Dataflow_graph.AnalysisType)
         (** Run an analysis over SSA-form DSG and print output *)
+    | WIntervalAnalysis
 
   and pass = { name : string; apply : transform; doc : string }
 
@@ -50,10 +51,17 @@ module PassManager = struct
       doc = "runs truthiness analysis on dataflow graph and prints results";
     }
 
+  (* let dfg_wrapped_int = *)
+  (*   { *)
+  (*     name = "demo-dfg-wrapped-int-analysis"; *)
+  (*     apply = DFGAnalysis (module Analysis.Wrapped_intervals.Analysis); *)
+  (*     doc = *)
+  (*       "Runs wrapped interval analysis on dataflow graph and prints results"; *)
+  (*   } *)
   let dfg_wrapped_int =
     {
       name = "demo-dfg-wrapped-int-analysis";
-      apply = DFGAnalysis (module Analysis.Wrapped_intervals.Analysis);
+      apply = WIntervalAnalysis;
       doc =
         "Runs wrapped interval analysis on dataflow graph and prints results";
     }
@@ -146,6 +154,7 @@ module PassManager = struct
                   (fill newline
                      (List.map (fun i -> bracket "\"" (text i.name) "\"") bs))
                   ")"
+          | WIntervalAnalysis -> text "special"
         in
         let doc =
           fill newline (String.split_on_char ' ' p.doc |> List.map text)
@@ -178,6 +187,15 @@ module PassManager = struct
             print_endline
               Containers_pp.(
                 Pretty.to_string ~width:80 @@ nest 4 (D.D.pretty r)));
+        p
+    | WIntervalAnalysis ->
+        ID.Map.to_iter p.procs
+        |> Iter.filter (fun (_, p) -> Procedure.graph p |> Option.is_some)
+        |> Iter.iter (fun (pn, p) ->
+            let r = Analysis.Wrapped_intervals.analyse p in
+            print_endline ("Wrapped_intervals" ^ " :: " ^ ID.to_string pn);
+            Analysis.Wrapped_intervals.Analysis.print_dot
+              (Format.of_chan stdout) p r);
         p
     | ProcCheck app ->
         let _ =
