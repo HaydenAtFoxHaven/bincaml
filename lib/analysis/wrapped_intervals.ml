@@ -28,8 +28,8 @@ module WrappedIntervalsLattice = struct
 
   let show l =
     match l with
-    | Bot -> "⊥"
-    | Top -> "⊤"
+    | Bot -> Bincaml_util.Unicode.bot_char
+    | Top -> Bincaml_util.Unicode.top_char
     | Interval { lower; upper } -> "⟦" ^ show lower ^ ", " ^ show upper ^ "⟧"
 
   let interval lower upper =
@@ -37,12 +37,12 @@ module WrappedIntervalsLattice = struct
     if Bitvec.(equal lower (add upper (of_int ~size:(size upper) 1))) then Top
     else Interval { lower; upper }
 
-  let umin width = zero ~size:width
-  let umax width = ones ~size:width
-  let smin width = concat (ones ~size:1) (zero ~size:(width - 1))
-  let smax width = zero_extend ~extension:1 (ones ~size:(width - 1))
-  let sp width = interval (umax width) (umin width)
-  let np width = interval (smax width) (smin width)
+  let umin ~width = zero ~size:width
+  let umax ~width = ones ~size:width
+  let smin ~width = concat (ones ~size:1) (zero ~size:(width - 1))
+  let smax ~width = zero_extend ~extension:1 (ones ~size:(width - 1))
+  let sp ~width = interval (umax ~width) (umin ~width)
+  let np ~width = interval (smax ~width) (smin ~width)
   let top = Top
   let bottom = Bot
   let pretty t = Containers_pp.text (show t)
@@ -59,9 +59,6 @@ module WrappedIntervalsLattice = struct
     | Bot | Top -> None
     | Interval { lower; upper } ->
         if Bitvec.equal lower upper then Some lower else None
-
-  let compare_size ~width s t =
-    Z.compare (cardinality ~width s) (cardinality ~width t)
 
   let complement v =
     match v with
@@ -84,10 +81,8 @@ module WrappedIntervalsLattice = struct
   let compare a b =
     match (a, b) with
     | a, b when equal a b -> 0
-    | Top, _ -> 1
-    | Bot, _ -> -1
-    | _, Top -> -1
-    | _, Bot -> 1
+    | Top, _ | _, Bot -> 1
+    | Bot, _ | _, Top -> -1
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if
@@ -126,12 +121,12 @@ module WrappedIntervalsLattice = struct
     let bigger a b =
       match (a, b) with
       | x, y when equal x y -> a
-      | Bot, _ -> b
-      | _, Bot -> a
-      | Top, _ -> a
-      | _, Top -> b
+      | Bot, _ | _, Top -> b
+      | _, Bot | Top, _ -> a
       | Interval { lower }, _ ->
-          if compare_size ~width:(size lower) a b < 0 then b else a
+          let width = size lower in
+          if Z.compare (cardinality ~width a) (cardinality ~width b) < 0 then b
+          else a
     in
     let gap a b =
       match (a, b) with
@@ -164,17 +159,15 @@ module WrappedIntervalsLattice = struct
     in
     let g, f =
       List.fold_left
-        (fun (g, f) t -> (bigger g (gap f t), extend f t))
+        (fun (g, f) t -> (bigger g @@ gap f t, extend f t))
         (bottom, f1) sorted
     in
     complement (bigger g (complement f))
 
   let widening a b =
     match (a, b) with
-    | _, Bot -> a
-    | Bot, _ -> b
-    | _, Top -> b
-    | Top, _ -> a
+    | _, Bot | Top, _ -> a
+    | Bot, _ | _, Top -> b
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         size_is_equal al bl;
@@ -208,11 +201,9 @@ module WrappedIntervalsLattice = struct
 
   let intersect a b =
     match (a, b) with
-    | Bot, _ -> []
-    | _, Bot -> []
-    | Top, _ -> [ b ]
+    | Bot, _ | _, Bot -> []
+    | Top, x | x, Top -> [ x ]
     | a, b when equal a b -> [ b ]
-    | _, Top -> [ a ]
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         let al_mem = member b al in
@@ -235,13 +226,14 @@ module WrappedIntervalsLattice = struct
     | Bot -> []
     | Top ->
         [
-          interval (umin width) (smax width); interval (smin width) (umax width);
+          interval (umin ~width) (smax ~width);
+          interval (smin ~width) (umax ~width);
         ]
     | Interval { lower; upper } ->
         let width = size lower in
-        let np = np width in
+        let np = np ~width in
         if compare np t <= 0 then
-          [ interval lower (smax width); interval (smin width) upper ]
+          [ interval lower (smax ~width); interval (smin ~width) upper ]
         else [ t ]
 
   let ssplit ~width t =
@@ -249,13 +241,14 @@ module WrappedIntervalsLattice = struct
     | Bot -> []
     | Top ->
         [
-          interval (umin width) (smax width); interval (smin width) (umax width);
+          interval (umin ~width) (smax ~width);
+          interval (smin ~width) (umax ~width);
         ]
     | Interval { lower; upper } ->
         let width = size lower in
-        let sp = sp width in
+        let sp = sp ~width in
         if compare sp t <= 0 then
-          [ interval lower (umax width); interval (umin width) upper ]
+          [ interval lower (umax ~width); interval (umin ~width) upper ]
         else [ t ]
 
   let cut ~width t = List.concat_map (ssplit ~width) (nsplit ~width t)
@@ -270,10 +263,8 @@ module WrappedIntervalsLatticeOps = struct
     | Top -> Top
     | Interval { lower; upper } -> f lower upper
 
-  let neg = bind1 (fun l u -> Interval { lower = neg u; upper = neg l })
-
-  let bitnot =
-    bind1 (fun l u -> Interval { lower = bitnot u; upper = bitnot l })
+  let neg = bind1 (fun l u -> interval (neg u) (neg l))
+  let bitnot = bind1 (fun l u -> interval (bitnot u) (bitnot l))
 
   let sign_extend ~width t k =
     if width = 0 then Top
@@ -309,8 +300,7 @@ module WrappedIntervalsLatticeOps = struct
 
   let add ~width s t =
     match (s, t) with
-    | Bot, _ -> s
-    | _, Bot -> t
+    | Bot, _ | _, Bot -> bottom
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if
@@ -324,8 +314,7 @@ module WrappedIntervalsLatticeOps = struct
 
   let sub ~width s t =
     match (s, t) with
-    | Bot, _ -> s
-    | _, Bot -> t
+    | Bot, _ | _, Bot -> bottom
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         if
@@ -411,14 +400,16 @@ module WrappedIntervalsLatticeOps = struct
     let zero = zero ~size:width in
     match t with
     | Bot -> []
-    | Top -> [ interval (of_int ~size:width 1) (umax width) ]
+    | Top -> [ interval (of_int ~size:width 1) (umax ~width) ]
     | Interval { lower; upper } ->
         let equal = Bitvec.equal in
         if equal lower zero && equal upper zero then []
         else if equal lower zero then [ interval (of_int ~size:width 1) upper ]
-        else if equal upper zero then [ interval lower (umax width) ]
+        else if equal upper zero then [ interval lower (umax ~width) ]
         else if member t zero then
-          [ interval lower (umax width); interval (of_int ~size:width 1) upper ]
+          [
+            interval lower (umax ~width); interval (of_int ~size:width 1) upper;
+          ]
         else [ t ]
 
   let udiv ~width s t =
@@ -447,7 +438,7 @@ module WrappedIntervalsLatticeOps = struct
             Bitvec.(equal (extract ~hi:w ~lo:(w - 1) b) (ones ~size:1))
           in
           let ( = ) = Bitvec.equal in
-          let smin, neg1 = (smin w, umax w) in
+          let smin, neg1 = (smin ~width:w, umax ~width:w) in
           match (msb_hi al, msb_hi bl) with
           | true, true
             when not ((au = smin && bl = neg1) || (al = smin && bu = neg1)) ->
@@ -500,7 +491,7 @@ module WrappedIntervalsLatticeOps = struct
           if ule temp bu then bitor al temp else recurse ()
         else recurse ()
       in
-      let init = smin (size al) in
+      let init = smin ~width:(size al) in
       min_or_aux init
     in
 
@@ -518,7 +509,7 @@ module WrappedIntervalsLatticeOps = struct
           else recurse ()
         else recurse ()
       in
-      let init = smin (size al) in
+      let init = smin ~width:(size al) in
       max_or_aux init
     in
     bitlogop min_or max_or
@@ -537,7 +528,7 @@ module WrappedIntervalsLatticeOps = struct
           else recurse ()
         else recurse ()
       in
-      let init = smin (size al) in
+      let init = smin ~width:(size al) in
       min_and_aux init
     in
 
@@ -555,7 +546,7 @@ module WrappedIntervalsLatticeOps = struct
           if uge temp bl then bitand au temp else recurse ()
         else recurse ()
       in
-      let init = smin (size al) in
+      let init = smin ~width:(size al) in
       max_and_aux init
     in
     bitlogop min_and max_and
@@ -576,7 +567,7 @@ module WrappedIntervalsLatticeOps = struct
           recurse (al, au) (bl, bu)
         else recurse (al, au) (bl, bu)
       in
-      let init = smin (size al) in
+      let init = smin ~width:(size al) in
       min_xor_aux init (al, au) (bl, bu)
     in
 
@@ -597,7 +588,7 @@ module WrappedIntervalsLatticeOps = struct
           recurse (al, au) (bl, bu)
         else recurse (al, au) (bl, bu)
       in
-      let init = smin (size al) in
+      let init = smin ~width:(size al) in
       max_xor_aux init (al, au) (bl, bu)
     in
     bitlogop min_xor max_xor
@@ -622,10 +613,19 @@ module WrappedIntervalsLatticeOps = struct
           then interval truncl truncu
           else top
 
-  let shl ~width t k =
-    let shl_const t k =
-      if equal t Bot then t
-      else
+  let bitshop ~width f t k =
+    if equal t Bot then t
+    else
+      Option.map_or ~default:top (fun k ->
+          let k =
+            to_unsigned_bigint k |> fun k ->
+            if Z.fits_int k then Z.to_int k else width + 1
+          in
+          f ~width t k)
+      @@ is_singleton k
+
+  let shl =
+    bitshop (fun ~width t k ->
         let k = if width < k then width else k in
         match truncate t (width - k) with
         | Interval { lower; upper } ->
@@ -636,79 +636,54 @@ module WrappedIntervalsLatticeOps = struct
               (shl upper (of_int ~size:width k))
         | _ ->
             interval (zero ~size:width)
-              (concat (ones ~size:(width - k)) (zero ~size:k))
-    in
-    match is_singleton k with
-    | Some k ->
-        shl_const t
-          ( to_unsigned_bigint k |> fun k ->
-            if Z.fits_int k then Z.to_int k else width + 1 )
-    | None -> top
+              (concat (ones ~size:(width - k)) (zero ~size:k)))
 
-  let lshr ~width t k =
-    let lshr_const t k =
-      if equal t Bot then t
-      else
+  let lshr =
+    bitshop (fun ~width t k ->
         let fallback =
           interval (zero ~size:width)
             (concat (zero ~size:k) (ones ~size:(width - k)))
         in
-        if compare (sp width) t <= 0 then fallback
+        if compare (sp ~width) t <= 0 then fallback
         else
           match t with
           | Interval { lower; upper } ->
               interval
                 (lshr lower (of_int ~size:width k))
                 (lshr upper (of_int ~size:width k))
-          | _ -> fallback
-    in
-    match is_singleton k with
-    | Some k ->
-        lshr_const t
-          ( to_unsigned_bigint k |> fun k ->
-            if Z.fits_int k then Z.to_int k else width + 1 )
-    | None -> top
+          | _ -> fallback)
 
-  let ashr ~width t k =
-    let ashr_const t k =
-      if equal t Bot then t
-      else
+  let ashr =
+    bitshop (fun ~width t k ->
         let fallback =
           let k = min k width in
           interval
             (concat (ones ~size:k) (zero ~size:(width - k)))
             (concat (zero ~size:k) (ones ~size:(width - k)))
         in
-        if compare (np width) t <= 0 then fallback
+        if compare (np ~width) t <= 0 then fallback
         else
           match t with
           | Interval { lower; upper } ->
               interval
                 (ashr lower (of_int ~size:width k))
                 (ashr upper (of_int ~size:width k))
-          | _ -> fallback
-    in
-    match is_singleton k with
-    | Some k ->
-        ashr_const t
-          ( to_unsigned_bigint k |> fun k ->
-            if Z.fits_int k then Z.to_int k else width + 1 )
-    | None -> top
+          | _ -> fallback)
 
   let extract ~width ~hi ~lo t =
     assert (0 <= lo);
     assert (lo <= hi);
+    assert (hi <= width);
     if hi <= lo then bottom
     else
       let k = of_int ~size:width lo in
-      assert (hi <= width);
       truncate (lshr ~width t (interval k k)) (hi - lo)
 
   let concat (s, sw) (t, tw) =
-    let t = if compare (sp tw) t <= 0 then top else t in
+    let t = if compare (sp ~width:tw) t <= 0 then top else t in
     match (s, t) with
     | Bot, _ | _, Bot -> bottom
-    | Top, Top -> Top
+    | Top, Top -> top
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         interval (concat al bl) (concat au bu)
