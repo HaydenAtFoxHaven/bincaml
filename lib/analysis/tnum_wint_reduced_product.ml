@@ -43,12 +43,29 @@ module TnumWintReducedProductLattice = struct
             let value = bitand lower @@ bitnot mask in
             tnum value mask
 
-            (* join  compare
-             then reduce
-            x meet x
-           
+  let compare s t =
+    if
+      IsKnownLattice.equal s.tnum t.tnum
+      && WrappedIntervalsLattice.equal s.wint t.wint
+    then 0
+    else if
+      IsKnownLattice.compare s.tnum t.tnum <= 0
+      && WrappedIntervalsLattice.compare s.wint t.wint <= 0
+    then -1
+    else 1
 
-             *)
+  let reduce tnum wint =
+    let wint_from_tnum = tnum_to_wint tnum in
+    let intersected = intersect wint_from_tnum wint in
+    let wint_reduced = lub intersected in
+    let tnum_from_wint = wint_to_tnum wint_reduced in
+    let tnum_reduced = IsKnownLattice.join tnum tnum_from_wint in
+    { tnum = tnum_reduced; wint = wint_reduced }
+
+  let join s t =
+    let tnum_joined = IsKnownLattice.join s.tnum t.tnum in
+    let wint_joined = WrappedIntervalsLattice.join s.wint t.wint in
+    reduce tnum_joined wint_joined
 end
 
 module Tnum_Wint_Reduced_productValueAbstractionBasil = struct
