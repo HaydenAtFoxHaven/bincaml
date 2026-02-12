@@ -54,18 +54,85 @@ module TnumWintReducedProductLattice = struct
     then -1
     else 1
 
-  let reduce tnum wint =
-    let wint_from_tnum = tnum_to_wint tnum in
-    let intersected = intersect wint_from_tnum wint in
-    let wint_reduced = lub intersected in
-    let tnum_from_wint = wint_to_tnum wint_reduced in
-    let tnum_reduced = IsKnownLattice.join tnum tnum_from_wint in
-    { tnum = tnum_reduced; wint = wint_reduced }
-
   let join s t =
     let tnum_joined = IsKnownLattice.join s.tnum t.tnum in
     let wint_joined = WrappedIntervalsLattice.join s.wint t.wint in
-    reduce tnum_joined wint_joined
+
+    { tnum = tnum_joined; wint = wint_joined }
+
+  let reduce_wint wint tnum =
+    let mssb x =
+      let w = size x in
+      let k = Z.numbits @@ to_unsigned_bigint x in
+      if k = 0 then zero ~size:w
+      else concat (zero ~size:(w - k + 1)) (ones ~size:(k - 1))
+    in
+    let lssb x = bitand x (bitnot x) in
+    let above p = bitnot (bitor p (sub p (ones ~size:(size p)))) in
+    let below p = sub p (ones ~size:(size p)) in
+    let mergeon a b p = bitor (bitand a (above p)) (bitand b (below p)) in
+    let refine_lower_bound a tnum =
+      match tnum with
+      | Bot -> a
+      | Top -> a
+      | TNum { value = v; mask = m } -> (
+          let diff = mssb (bitand (bitxor a v) (bitnot m)) in
+          let wint_result = tnum_to_wint tnum in
+          match wint_result.v with
+          | Bot -> a
+          | Top -> a
+          | Interval { lower = tmin; upper = _ } ->
+              if is_zero diff then a
+              else if is_zero (bitand a diff) then
+                bitor diff (mergeon a tmin diff)
+              else
+                let carry = lssb (bitand (bitand (above diff) (bitnot a)) m) in
+                bitor carry (mergeon a tmin carry))
+    in
+    let refine_upper_bound b tnum =
+      match tnum with
+      | Bot -> b
+      | Top -> b
+      | TNum { value = v; mask = m } -> (
+          let diff = mssb (bitand (bitxor b v) (bitnot m)) in
+          let wint_result = tnum_to_wint tnum in
+          match wint_result.v with
+          | Bot -> b
+          | Top -> b
+          | Interval { lower = _; upper = tmax } ->
+              if is_zero diff then b
+              else if not (is_zero (bitand b diff)) then mergeon b tmax diff
+              else
+                let borrow = lssb (bitand (bitand (above diff) b) m) in
+                mergeon b tmax borrow)
+    in
+    match tnum with
+    | Bot | Top -> wint
+    | TNum _ -> (
+        match wint.v with
+        | Bot -> wint
+        | Top -> tnum_to_wint tnum
+        | Interval { lower; upper } ->
+            let refined_lower = refine_lower_bound lower tnum in
+            let refined_upper = refine_upper_bound upper tnum in
+            interval refined_lower refined_upper)
+
+  let reduce_tnum wint tnum =
+    let tnumed_wint = wint_to_tnum wint in
+    match (tnumed_wint, tnum) with
+    | Bot, _ | _, Bot -> IsKnownLattice.Bot
+    | Top, t | t, Top -> t
+    | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
+        if is_nonzero (bitxor (bitand av am) (bitand bv bm)) then Bot
+        else
+          let m = bitand am bm in
+          let v = bitand (bitor av bv) (bitnot m) in
+          TNum { value = v; mask = m }
+
+  let reduce wint tnum =
+    let wint' = reduce_wint wint tnum in
+    let tnum' = reduce_tnum wint' tnum in
+    { wint = wint'; tnum = tnum' }
 end
 
 module Tnum_Wint_Reduced_productValueAbstractionBasil = struct
