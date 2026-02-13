@@ -901,9 +901,34 @@ module Domain = struct
           Iter.singleton (rv, reduce_bin_left (swap op) r l)
       | _ -> Iter.empty
 
-    let reduce_expr dom expr =
+    let rec reduce_expr dom expr =
       let open Lang.Expr in
+      let open WrappedIntervalsLattice in
+      let into_varmap =
+        Iter.fold
+          (fun acc (v, e) ->
+            VarMap.update v
+              (function Some l -> Some (e :: l) | None -> Some [ e ])
+              acc)
+          VarMap.empty
+      in
+      let meet s t = lub @@ intersect s t in
+      let glb ints = List.map complement ints |> lub |> complement in
       match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix expr) with
+      | ApplyIntrin (`AND, args) ->
+          List.map BasilExpr.fix args
+          |> Iter.of_list
+          |> Iter.flat_map (reduce_expr dom)
+          |> into_varmap |> VarMap.map glb |> VarMap.to_iter
+      | ApplyIntrin (`OR, args) ->
+          List.map BasilExpr.fix args
+          |> Iter.of_list
+          |> Iter.flat_map (reduce_expr dom)
+          |> into_varmap
+          |> VarMap.mapi (fun v rs ->
+              let s = read v dom in
+              if List.length rs = List.length args then meet s (lub rs) else s)
+          |> VarMap.to_iter
       | BinaryExpr (op, l, r) ->
           from_op op
           |> Option.map_or ~default:Iter.empty (fun op -> reduce_bin dom op l r)
