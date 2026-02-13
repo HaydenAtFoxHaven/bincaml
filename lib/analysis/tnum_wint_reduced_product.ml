@@ -54,12 +54,6 @@ module TnumWintReducedProductLattice = struct
     then -1
     else 1
 
-  let join s t =
-    let tnum_joined = IsKnownLattice.join s.tnum t.tnum in
-    let wint_joined = WrappedIntervalsLattice.join s.wint t.wint in
-
-    { tnum = tnum_joined; wint = wint_joined }
-
   let reduce_wint wint tnum =
     let mssb x =
       let w = size x in
@@ -129,18 +123,24 @@ module TnumWintReducedProductLattice = struct
           let v = bitand (bitor av bv) (bitnot m) in
           TNum { value = v; mask = m }
 
-  let reduce wint tnum =
+  let reduce { wint; tnum } =
     let wint' = reduce_wint wint tnum in
     let tnum' = reduce_tnum wint' tnum in
     { wint = wint'; tnum = tnum' }
+
+  let join s t =
+    let tnum_joined = IsKnownLattice.join s.tnum t.tnum in
+    let wint_joined = WrappedIntervalsLattice.join s.wint t.wint in
+    reduce { tnum = tnum_joined; wint = wint_joined }
+
+  let widening s t =
+    let tnum = IsKnownLattice.widening s.tnum t.tnum in
+    let wint = WrappedIntervalsLattice.widening s.wint t.wint in
+    { tnum; wint }
 end
 
 module TnumWintValueAbstraction = struct
   include TnumWintReducedProductLattice
-
-  let get_width = function
-    | Types.Bitvector width -> width
-    | _ -> failwith "Expected bitvector type"
 
   let eval_const (op : Lang.Ops.AllOps.const) rt =
     let tnum = IsKnownBitsValueAbstraction.eval_const op in
