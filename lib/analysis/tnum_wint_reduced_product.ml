@@ -1,5 +1,5 @@
 (** Combines Known bit analysis and wrapped interval analysis to get more
-    presice values. *)
+    precise values. *)
 
 open Bincaml_util.Common
 open Bitvec
@@ -135,7 +135,42 @@ module TnumWintReducedProductLattice = struct
     { wint = wint'; tnum = tnum' }
 end
 
-module Tnum_Wint_Reduced_productValueAbstractionBasil = struct
+module TnumWintValueAbstraction = struct
   include TnumWintReducedProductLattice
+  module E = Lang.Ops.AllOps
+
+  let get_width = function
+    | Types.Bitvector width -> width
+    | _ -> failwith "Expected bitvector type"
+
+  let eval_const (op : Lang.Ops.AllOps.const) rt =
+    let tnum = IsKnownBitsValueAbstraction.eval_const op in
+    let wint = WrappedIntervalsValueAbstraction.eval_const op rt in
+    { tnum; wint }
+
+  let eval_unop (op : E.unary) (a, ta) rt =
+    let tnum = IsKnownBitsValueAbstraction.eval_unop op a.tnum in
+    let wint = WrappedIntervalsValueAbstraction.eval_unop op (a.wint, ta) rt in
+    { tnum; wint }
+
+  let eval_binop (op : E.binary) (a, ta) (b, tb) rt =
+    let tnum = IsKnownBitsValueAbstraction.eval_binop op a.tnum b.tnum in
+    let wint =
+      WrappedIntervalsValueAbstraction.eval_binop op (a.wint, ta) (b.wint, tb)
+        rt
+    in
+    { tnum; wint }
+
+  let eval_intrin (op : E.intrin) (args : (t * Types.t) list) rt =
+    let tnum_args = List.map (fun (arg, _) -> arg.tnum) args in
+    let wint_args = List.map (fun (arg, ty) -> (arg.wint, ty)) args in
+
+    let tnum = IsKnownBitsValueAbstraction.eval_intrin op tnum_args in
+    let wint = WrappedIntervalsValueAbstraction.eval_intrin op wint_args rt in
+    { tnum; wint }
+end
+
+module Tnum_Wint_Reduced_productValueAbstractionBasil = struct
+  include TnumWintValueAbstraction
   module E = Lang.Expr.BasilExpr
 end
