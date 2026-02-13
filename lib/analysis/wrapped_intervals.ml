@@ -166,15 +166,16 @@ module WrappedIntervalsLattice = struct
 
   let widening a b =
     match (a, b) with
-    | _, Bot | Top, _ -> a
-    | Bot, _ | _, Top -> b
+    | s, Bot | Bot, s -> s
+    | Top, _ | _, Top -> Top
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
         size_is_equal al bl;
         size_is_equal au bu;
         let width = size al in
         if compare b a <= 0 then a
-        else if Z.geq (cardinality ~width a) (Z.pow (Z.of_int 2) width) then top
+        else if Z.geq (cardinality ~width a) (Z.pow (Z.of_int 2) (width - 1))
+        then top
         else
           let joined = join a b in
           if equal joined (interval al bu) then
@@ -777,106 +778,149 @@ module Domain = struct
     |> Iter.map (fun v -> (v, top_val))
     |> Iter.fold (fun m (v, d) -> update v d m) bottom
 
-  let rec eval_pred dom op l r =
-    let read = flip read dom in
-    let abstract_eval = Eval.EV.eval read in
-    let open WrappedIntervalsLattice in
-    let meet s t = lub @@ intersect s t in
-    let left_reduce l r =
-      let ineq f =
-        match r.v with
-        | Bot -> Some { l with v = Bot }
-        | Top -> Some l
-        | Interval { lower; upper } -> Option.map (f lower upper) r.w
-      in
+  open struct
+    type bin_pred =
+      [ `EQ | `NEQ | `ULE | `ULT | `UGT | `UGE | `SLE | `SLT | `SGT | `SGE ]
+
+    let from_op op =
       match op with
-      | `BVULE ->
-          ineq (fun _ upper w ->
-              if member r.v (umax w) then l
-              else meet l @@ interval (umin w) upper)
-      | `BVULT ->
-          ineq (fun _ upper w ->
-              if member r.v (umax w) then l
-              else if Bitvec.equal upper (umin w) then { l with v = Bot }
-              else
-                meet l
-                @@ interval (umin w) Bitvec.(sub upper @@ of_int ~size:w 1))
-      | `BVSLE ->
-          ineq (fun _ upper w ->
-              if member r.v (smax w) then l
-              else meet l @@ interval (smin w) upper)
-      | `BVSLT ->
-          ineq (fun _ upper w ->
-              if member r.v (smax w) then l
-              else if Bitvec.equal upper (smin w) then { l with v = Bot }
-              else
-                meet l
-                @@ interval (smin w) Bitvec.(sub upper @@ of_int ~size:w 1))
-      | `EQ -> Some (meet l r)
-      | `NEQ -> Some (meet l (complement r))
+      | `EQ -> Some `EQ
+      | `NEQ -> Some `NEQ
+      | `BVULE -> Some `ULE
+      | `BVULT -> Some `ULT
+      | `BVSLE -> Some `SLE
+      | `BVSLT -> Some `SLT
       | _ -> None
-    in
-    let right_reduce l r =
-      let ineq f =
-        match l.v with
-        | Bot -> Some { r with v = Bot }
-        | Top -> Some r
-        | Interval { lower; upper } -> Option.map (f lower upper) l.w
+
+    let invert p =
+      match p with
+      | `EQ -> `NEQ
+      | `NEQ -> `EQ
+      | `ULE -> `UGT
+      | `ULT -> `UGE
+      | `UGT -> `ULE
+      | `UGE -> `ULT
+      | `SLE -> `SGT
+      | `SLT -> `SGE
+      | `SGT -> `SLE
+      | `SGE -> `SLT
+
+    let swap p =
+      match p with
+      | `EQ -> `EQ
+      | `NEQ -> `NEQ
+      | `ULE -> `UGE
+      | `ULT -> `UGT
+      | `UGT -> `ULT
+      | `UGE -> `ULE
+      | `SLE -> `SGE
+      | `SLT -> `SGT
+      | `SGT -> `SLT
+      | `SGE -> `SLE
+
+    let reduce_bin_left op s t =
+      let open WrappedIntervalsLattice in
+      let meet s t = lub @@ intersect s t in
+      let bind f =
+        match t with
+        | Bot -> Bot
+        | Top -> s
+        | Interval { lower; upper } -> f lower upper
       in
+      let ineq min max op =
+        match op with
+        | `LE ->
+            bind (fun _ b ->
+                let width = size b in
+                if member t (max ~width) then s
+                else meet s @@ interval (min ~width) b)
+        | `LT ->
+            bind (fun _ b ->
+                let width = size b in
+                if member t (max ~width) then
+                  meet s
+                  @@ interval (min ~width)
+                       Bitvec.(sub (max ~width) @@ of_int ~size:width 1)
+                else if Bitvec.equal b (min ~width) then Bot
+                else
+                  meet s
+                  @@ interval (min ~width)
+                       Bitvec.(sub b @@ of_int ~size:width 1))
+        | `GE ->
+            bind (fun a _ ->
+                let width = size a in
+                if member t (min ~width) then s
+                else meet s @@ interval a (max ~width))
+        | `GT ->
+            bind (fun a _ ->
+                let width = size a in
+                if member t (min ~width) then
+                  meet s
+                  @@ interval
+                       Bitvec.(add (min ~width) (of_int ~size:width 1))
+                       (max ~width)
+                else if Bitvec.equal a (max ~width) then Bot
+                else meet s @@ interval a (max ~width))
+      in
+      let uineq = ineq umin umax in
+      let sineq = ineq smin smax in
       match op with
-      | `BVULE ->
-          ineq (fun lower _ w ->
-              if member l.v (umin w) then r
-              else meet r @@ interval lower (umax w))
-      | `BVULT ->
-          ineq (fun lower _ w ->
-              if member l.v (umin w) then r
-              else if Bitvec.equal lower (umax w) then { r with v = Bot }
-              else
-                meet r
-                @@ interval Bitvec.(add lower @@ of_int ~size:w 1) (umax w))
-      | `BVSLE ->
-          ineq (fun lower _ w ->
-              if member l.v (smin w) then r
-              else meet r @@ interval lower (smax w))
-      | `BVSLT ->
-          ineq (fun lower _ w ->
-              if member l.v (smin w) then r
-              else if Bitvec.equal lower (smax w) then { r with v = Bot }
-              else
-                meet r
-                @@ interval Bitvec.(add lower @@ of_int ~size:w 1) (smax w))
-      | `EQ -> Some (meet l r)
-      | `NEQ -> Some (meet l (complement r))
-      | _ -> None
-    in
-    let open Lang.Expr.AbstractExpr in
-    match (l, r) with
-    | RVar lv, RVar rv ->
-        let l = read lv in
-        let r = read rv in
-        Iter.append
-          (left_reduce l r |> Option.map (fun e -> (lv, e)) |> Iter.of_opt)
-          (right_reduce l r |> Option.map (fun e -> (rv, e)) |> Iter.of_opt)
-    | RVar lv, rexpr ->
-        let l = read lv in
-        let r = abstract_eval (Lang.Expr.BasilExpr.fix rexpr) in
-        left_reduce l r |> Option.map (fun e -> (lv, e)) |> Iter.of_opt
-    | lexpr, RVar rv ->
-        let l = abstract_eval (Lang.Expr.BasilExpr.fix lexpr) in
-        let r = read rv in
-        right_reduce l r |> Option.map (fun e -> (rv, e)) |> Iter.of_opt
-    | _ -> Iter.empty
+      | `EQ -> meet s t
+      | `NEQ -> meet s @@ complement t
+      | `ULE -> uineq `LE
+      | `ULT -> uineq `LT
+      | `UGE -> uineq `GE
+      | `UGT -> uineq `GT
+      | `SLE -> sineq `LE
+      | `SLT -> sineq `LT
+      | `SGE -> sineq `GE
+      | `SGT -> sineq `GT
+
+    let reduce_bin dom op l r =
+      let read = flip read dom in
+      let abstract_eval expr =
+        Eval.EV.eval read (Lang.Expr.BasilExpr.fix expr)
+      in
+      let open WrappedIntervalsLattice in
+      let open Lang.Expr.AbstractExpr in
+      match (l, r) with
+      | RVar lv, RVar rv ->
+          let l = read lv in
+          let r = read rv in
+          Iter.of_list
+            [
+              (lv, reduce_bin_left op l r); (rv, reduce_bin_left (swap op) r l);
+            ]
+      | RVar lv, re ->
+          let l = read lv in
+          let r = abstract_eval re in
+          Iter.singleton (lv, reduce_bin_left op l r)
+      | le, RVar rv ->
+          let l = abstract_eval le in
+          let r = read rv in
+          Iter.singleton (rv, reduce_bin_left (swap op) r l)
+      | _ -> Iter.empty
+
+    let reduce_expr dom expr =
+      let open Lang.Expr in
+      match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix expr) with
+      | BinaryExpr (op, l, r) ->
+          from_op op
+          |> Option.map_or ~default:Iter.empty (fun op -> reduce_bin dom op l r)
+      | UnaryExpr (`BoolNOT, BinaryExpr (op, l, r)) ->
+          from_op op
+          |> Option.map_or ~default:Iter.empty (fun op ->
+              reduce_bin dom (invert op) (BasilExpr.unfix l) (BasilExpr.unfix r))
+      | _ -> Iter.empty
+  end
 
   let transfer dom stmt =
     let evald_stmt = Eval.stmt_eval_fwd stmt dom in
     let open Lang.Expr in
     let pred_updates : (key_t * val_t) Iter.t =
       match stmt with
-      | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body } -> (
-          match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix body) with
-          | BinaryExpr (op, l, r) -> eval_pred dom op l r
-          | _ -> Iter.empty)
+      | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body } ->
+          reduce_expr dom body
       | _ -> Iter.empty
     in
     let updates =
