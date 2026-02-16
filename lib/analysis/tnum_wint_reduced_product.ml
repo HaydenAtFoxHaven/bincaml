@@ -16,17 +16,14 @@ open struct
   module KBVA = IsKnownBitsValueAbstraction
 end
 
-
 module TnumWintReducedProductLattice = struct
   let name = "tnumWintReduceProduct"
 
-  type t = {
-    tnum : IsKnownLattice.t;
-    wint : WrappedIntervalsLattice.t;
-  }
-  [@@deriving show, eq]
+  type t = { tnum : IsKnownLattice.t; wint : WrappedIntervalsLattice.t }
+  [@@deriving eq]
 
   let bottom = { tnum = KBL.bottom; wint = WIL.bottom }
+  let show { tnum; wint } = "(" ^ KBL.show tnum ^ ", " ^ WIL.show wint ^ ")"
   let pretty t = Containers_pp.text (show t)
 
   let tnum_to_wint tnum =
@@ -45,7 +42,7 @@ module TnumWintReducedProductLattice = struct
     | Interval { lower; upper } ->
         let w = size lower in
 
-        if WrappedIntervalsLattice.compare (sp w) wint <= 0 then
+        if WrappedIntervalsLattice.compare (sp ~width:w) wint <= 0 then
           TNum { value = zero ~size:w; mask = ones ~size:w }
         else
           let diff = bitxor lower upper in
