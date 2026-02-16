@@ -1,5 +1,6 @@
-(** Combines Known bit analysis and wrapped interval analysis to get more
-    precise values. *)
+(* Combines Known bit analysis and wrapped interval analysis to get more
+    precise values. 
+*)
 
 open Bincaml_util.Common
 open Bitvec
@@ -8,18 +9,30 @@ open WrappedIntervalsLattice
 open Known_bits
 open IsKnownLattice
 
+open struct
+  module WIL = WrappedIntervalsLattice
+  module WIVA = WrappedIntervalsValueAbstraction
+  module KBL = IsKnownLattice
+  module KBVA = IsKnownBitsValueAbstraction
+end
+
+
 module TnumWintReducedProductLattice = struct
   let name = "tnumWintReduceProduct"
 
   type t = {
-    tnum : Known_bits.IsKnownLattice.t;
-    wint : Wrapped_intervals.WrappedIntervalsLattice.t;
+    tnum : IsKnownLattice.t;
+    wint : WrappedIntervalsLattice.t;
   }
+  [@@deriving show, eq]
+
+  let bottom = { tnum = KBL.bottom; wint = WIL.bottom }
+  let pretty t = Containers_pp.text (show t)
 
   let tnum_to_wint tnum =
     match tnum with
-    | Bot -> { v = Bot; w = None }
-    | Top -> { v = Top; w = None }
+    | Bot -> WIL.Bot
+    | Top -> WIL.Top
     | TNum { value = v; mask = m } ->
         let lower = bitand v (bitnot m) in
         let upper = bitor v m in
@@ -27,9 +40,9 @@ module TnumWintReducedProductLattice = struct
 
   let wint_to_tnum wint =
     match wint with
-    | { v = Bot; w = _ } -> Bot
-    | { v = Top; w = _ } -> Top
-    | { v = Interval { lower; upper }; w = _ } ->
+    | WIL.Bot -> Bot
+    | Top -> Top
+    | Interval { lower; upper } ->
         let w = size lower in
 
         if WrappedIntervalsLattice.compare (sp w) wint <= 0 then
@@ -72,7 +85,7 @@ module TnumWintReducedProductLattice = struct
       | TNum { value = v; mask = m } -> (
           let diff = mssb (bitand (bitxor a v) (bitnot m)) in
           let wint_result = tnum_to_wint tnum in
-          match wint_result.v with
+          match wint_result with
           | Bot -> a
           | Top -> a
           | Interval { lower = tmin; upper = _ } ->
@@ -90,7 +103,7 @@ module TnumWintReducedProductLattice = struct
       | TNum { value = v; mask = m } -> (
           let diff = mssb (bitand (bitxor b v) (bitnot m)) in
           let wint_result = tnum_to_wint tnum in
-          match wint_result.v with
+          match wint_result with
           | Bot -> b
           | Top -> b
           | Interval { lower = _; upper = tmax } ->
@@ -103,8 +116,8 @@ module TnumWintReducedProductLattice = struct
     match tnum with
     | Bot | Top -> wint
     | TNum _ -> (
-        match wint.v with
-        | Bot -> wint
+        match wint with
+        | WIL.Bot -> wint
         | Top -> tnum_to_wint tnum
         | Interval { lower; upper } ->
             let refined_lower = refine_lower_bound lower tnum in
