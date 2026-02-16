@@ -5,7 +5,7 @@
 open Bincaml_util.Common
 open Bitvec
 
-module IsKnownLattice = struct
+module KnownBitsLattice = struct
   let name = "tnum"
 
   type t = Bot | TNum of { value : Bitvec.t; mask : Bitvec.t } | Top
@@ -68,8 +68,8 @@ module IsKnownLattice = struct
   let widening a b = join a b
 end
 
-module IsKnownBitsOps = struct
-  include IsKnownLattice
+module KnownBitsOps = struct
+  include KnownBitsLattice
 
   let bind1 f a =
     match a with TNum { value; mask } -> f (value, mask) | _ -> a
@@ -207,8 +207,8 @@ module IsKnownBitsOps = struct
         tnum (concat av bv) (concat am bm)
 end
 
-module IsKnownBitsValueAbstraction = struct
-  include IsKnownBitsOps
+module KnownBitsValueAbstraction = struct
+  include KnownBitsOps
 
   let eval_const (op : Lang.Ops.AllOps.const) =
     match op with
@@ -263,15 +263,15 @@ module IsKnownBitsValueAbstraction = struct
     fold f args
 end
 
-module IsKnownValueAbstractionBasil = struct
+module KnownValueAbstractionBasil = struct
   include Intra_analysis.ValueAbstractionIgnoringTypes (struct
-    include IsKnownBitsValueAbstraction
+    include KnownBitsValueAbstraction
     module E = Lang.Expr.BasilExpr
   end)
 
-  let top = IsKnownLattice.Top
+  let top = KnownBitsLattice.Top
 
   module E = Lang.Expr.BasilExpr
 end
 
-include Dataflow_graph.EasyForwardAnalysisPack (IsKnownValueAbstractionBasil)
+include Dataflow_graph.EasyForwardAnalysisPack (KnownValueAbstractionBasil)

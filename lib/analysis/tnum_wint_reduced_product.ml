@@ -7,19 +7,19 @@ open Bitvec
 open Wrapped_intervals
 open WrappedIntervalsLattice
 open Known_bits
-open IsKnownLattice
+open KnownBitsLattice
 
 open struct
   module WIL = WrappedIntervalsLattice
   module WIVA = WrappedIntervalsValueAbstraction
-  module KBL = IsKnownLattice
-  module KBVA = IsKnownBitsValueAbstraction
+  module KBL = KnownBitsLattice
+  module KBVA = KnownBitsValueAbstraction
 end
 
 module TnumWintReducedProductLattice = struct
   let name = "tnumWintReduceProduct"
 
-  type t = { tnum : IsKnownLattice.t; wint : WrappedIntervalsLattice.t }
+  type t = { tnum : KnownBitsLattice.t; wint : WrappedIntervalsLattice.t }
   [@@deriving eq]
 
   let bottom = { tnum = KBL.bottom; wint = WIL.bottom }
@@ -55,11 +55,11 @@ module TnumWintReducedProductLattice = struct
 
   let compare s t =
     if
-      IsKnownLattice.equal s.tnum t.tnum
+      KnownBitsLattice.equal s.tnum t.tnum
       && WrappedIntervalsLattice.equal s.wint t.wint
     then 0
     else if
-      IsKnownLattice.compare s.tnum t.tnum <= 0
+      KnownBitsLattice.compare s.tnum t.tnum <= 0
       && WrappedIntervalsLattice.compare s.wint t.wint <= 0
     then -1
     else 1
@@ -124,7 +124,7 @@ module TnumWintReducedProductLattice = struct
   let reduce_tnum wint tnum =
     let tnumed_wint = wint_to_tnum wint in
     match (tnumed_wint, tnum) with
-    | Bot, _ | _, Bot -> IsKnownLattice.Bot
+    | Bot, _ | _, Bot -> KnownBitsLattice.Bot
     | Top, t | t, Top -> t
     | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
         if is_nonzero (bitxor (bitand av am) (bitand bv bm)) then Bot
@@ -139,12 +139,12 @@ module TnumWintReducedProductLattice = struct
     { wint = wint'; tnum = tnum' }
 
   let join s t =
-    let tnum_joined = IsKnownLattice.join s.tnum t.tnum in
+    let tnum_joined = KnownBitsLattice.join s.tnum t.tnum in
     let wint_joined = WrappedIntervalsLattice.join s.wint t.wint in
     reduce { tnum = tnum_joined; wint = wint_joined }
 
   let widening s t =
-    let tnum = IsKnownLattice.widening s.tnum t.tnum in
+    let tnum = KnownBitsLattice.widening s.tnum t.tnum in
     let wint = WrappedIntervalsLattice.widening s.wint t.wint in
     { tnum; wint }
 end
@@ -153,17 +153,17 @@ module TnumWintValueAbstraction = struct
   include TnumWintReducedProductLattice
 
   let eval_const (op : Lang.Ops.AllOps.const) rt =
-    let tnum = IsKnownBitsValueAbstraction.eval_const op in
+    let tnum = KnownBitsValueAbstraction.eval_const op in
     let wint = WrappedIntervalsValueAbstraction.eval_const op rt in
     { tnum; wint }
 
   let eval_unop (op : Lang.Ops.AllOps.unary) (a, ta) rt =
-    let tnum = IsKnownBitsValueAbstraction.eval_unop op a.tnum in
+    let tnum = KnownBitsValueAbstraction.eval_unop op a.tnum in
     let wint = WrappedIntervalsValueAbstraction.eval_unop op (a.wint, ta) rt in
     { tnum; wint }
 
   let eval_binop (op : Lang.Ops.AllOps.binary) (a, ta) (b, tb) rt =
-    let tnum = IsKnownBitsValueAbstraction.eval_binop op a.tnum b.tnum in
+    let tnum = KnownBitsValueAbstraction.eval_binop op a.tnum b.tnum in
     let wint =
       WrappedIntervalsValueAbstraction.eval_binop op (a.wint, ta) (b.wint, tb)
         rt
@@ -174,7 +174,7 @@ module TnumWintValueAbstraction = struct
     let tnum_args = List.map (fun (arg, _) -> arg.tnum) args in
     let wint_args = List.map (fun (arg, ty) -> (arg.wint, ty)) args in
 
-    let tnum = IsKnownBitsValueAbstraction.eval_intrin op tnum_args in
+    let tnum = KnownBitsValueAbstraction.eval_intrin op tnum_args in
     let wint = WrappedIntervalsValueAbstraction.eval_intrin op wint_args rt in
     { tnum; wint }
 end
