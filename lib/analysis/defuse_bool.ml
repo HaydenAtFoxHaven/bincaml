@@ -7,10 +7,17 @@ module IsZeroLattice = struct
   let name = "isZero"
 
   type t = Top | Zero | NonZero | Bot
-  [@@deriving ord, eq, show { with_path = false }]
+  [@@deriving eq, show { with_path = false }]
 
   let bottom = Bot
   let pretty t = Containers_pp.text (show t)
+
+  let compare a b =
+    match (a, b) with
+    | a, b when equal a b -> 0
+    | Bot, _ | _, Top -> -1
+    | _, Bot | Top, _ -> 1
+    | _ -> 1
 
   let join a b =
     match (a, b) with
