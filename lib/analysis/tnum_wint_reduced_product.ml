@@ -23,6 +23,7 @@ module TnumWintReducedProductLattice = struct
   [@@deriving eq]
 
   let bottom = { tnum = KBL.bottom; wint = WIL.bottom }
+  let top = { tnum = KBL.top; wint = WIL.top }
   let show { tnum; wint } = "(" ^ KBL.show tnum ^ ", " ^ WIL.show wint ^ ")"
   let pretty t = Containers_pp.text (show t)
 
@@ -179,7 +180,39 @@ module TnumWintValueAbstraction = struct
     { tnum; wint }
 end
 
-module Tnum_Wint_Reduced_productValueAbstractionBasil = struct
+module TnumWintReducedProductValueAbstractionBasil = struct
   include TnumWintValueAbstraction
   module E = Lang.Expr.BasilExpr
+end
+
+module StateAbstraction =
+  Intra_analysis.MapState (TnumWintReducedProductValueAbstractionBasil)
+
+module Domain = struct
+  include StateAbstraction
+
+  let top_val = TnumWintReducedProductLattice.top
+
+  let init p =
+    let vs = Lang.Procedure.formal_in_params p |> StringMap.values in
+    vs
+    |> Iter.map (fun v -> (v, top_val))
+    |> Iter.fold (fun m (v, d) -> update v d m) bottom
+
+  let transfer dom stmt =
+    let tnums, wints =
+      StateAbstraction.to_iter dom
+      |> Iter.fold
+           (fun (tnums, wints) (v, TnumWintReducedProductLattice.{ wint; tnum })
+              ->
+             ( Known_bits.StateAbstraction.update v tnum tnums,
+               Wrapped_intervals.StateAbstraction.update v wint wints ))
+           ( Known_bits.StateAbstraction.bottom,
+             Wrapped_intervals.StateAbstraction.bottom )
+    in
+    let tnums' = Known_bits.Domain.transfer tnums stmt in
+    let wints' = Wrapped_intervals.Domain.transfer wints stmt in
+    StateAbstraction.M.nonidempotent_inter_no_share
+      (fun _ tnum wint -> TnumWintReducedProductLattice.{ tnum; wint })
+      tnums' wints'
 end

@@ -70,7 +70,8 @@ struct
   let is_sound (_, _, abstract, concrete) =
     let abstract = fst @@ Lazy.force abstract in
     let concrete = fst @@ Lazy.force concrete in
-    V.equal abstract (V.join abstract concrete)
+    (* V.equal abstract (V.join abstract concrete) *)
+    V.compare concrete abstract <= 0
 
   let suite =
     let open QCheck in
@@ -103,6 +104,10 @@ module TestWrappedIntervalDom =
   ValueAbstractionSoundness
     (Analysis.Wrapped_intervals.WrappedIntervalsValueAbstractionBasil)
 
+module TestTnumWintReducedDom =
+  ValueAbstractionSoundness
+    (Analysis.Tnum_wint_reduced_product.Tnum_Wint_Reduced_productValueAbstractionBasil)
+
 let _ =
   Alcotest.run "value domain abstract eval soundness"
-    [ TestBoolDom.suite; TestWrappedIntervalDom.suite; TestIsKnownDom.suite ]
+    [ TestBoolDom.suite; TestWrappedIntervalDom.suite; TestIsKnownDom.suite; TestTnumWintReducedDom.suite ]

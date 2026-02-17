@@ -274,4 +274,6 @@ module KnownValueAbstractionBasil = struct
   module E = Lang.Expr.BasilExpr
 end
 
+module StateAbstraction = Intra_analysis.MapState (KnownValueAbstractionBasil)
+
 include Dataflow_graph.EasyForwardAnalysisPack (KnownValueAbstractionBasil)
