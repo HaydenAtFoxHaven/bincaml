@@ -200,19 +200,17 @@ module Domain = struct
     |> Iter.fold (fun m (v, d) -> update v d m) bottom
 
   let transfer dom stmt =
-    let tnums, wints =
-      StateAbstraction.to_iter dom
-      |> Iter.fold
-           (fun (tnums, wints) (v, TnumWintReducedProductLattice.{ wint; tnum })
-              ->
-             ( Known_bits.StateAbstraction.update v tnum tnums,
-               Wrapped_intervals.StateAbstraction.update v wint wints ))
-           ( Known_bits.StateAbstraction.bottom,
-             Wrapped_intervals.StateAbstraction.bottom )
+    let read_tnum v = (read v dom).tnum in
+    let read_wint v = (read v dom).wint in
+    let tnum' = Known_bits.Domain.tf ~read:read_tnum stmt in
+    let wint' = Wrapped_intervals.Domain.tf ~read:read_wint stmt in
+    let updated_tnum =
+      Iter.fold
+        (fun acc (k, v) -> update k { tnum = v; wint = (read k dom).wint } acc)
+        dom tnum'
     in
-    let tnums' = Known_bits.Domain.transfer tnums stmt in
-    let wints' = Wrapped_intervals.Domain.transfer wints stmt in
-    StateAbstraction.M.nonidempotent_inter_no_share
-      (fun _ tnum wint -> TnumWintReducedProductLattice.{ tnum; wint })
-      tnums' wints'
+    Iter.fold
+      (fun acc (k, v) ->
+        update k { tnum = (read k updated_tnum).tnum; wint = v } acc)
+      updated_tnum wint'
 end
