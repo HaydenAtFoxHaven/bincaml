@@ -166,7 +166,7 @@ module WrappedIntervalsLattice = struct
 
   let widening a b =
     match (a, b) with
-    | s, Bot | Bot, s -> s
+    | Bot, s | s, Bot -> s
     | Top, _ | _, Top -> Top
     | Interval { lower = al; upper = au }, Interval { lower = bl; upper = bu }
       ->
