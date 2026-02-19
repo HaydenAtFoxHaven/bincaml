@@ -21,7 +21,7 @@
 
 (package
  (name bincaml)
- (synopsis "program analysis tool")
+ (synopsis "Program analysis tool.")
  (description "A longer description")
  (depends
   menhir
@@ -35,7 +35,6 @@
   containers-data
   ppx_deriving
   ocamlgraph
-  intPQueue
   cmdliner
   pp_loc
   fmt
@@ -43,12 +42,13 @@
   (ocamlformat :with-dev-setup)
   (odig :with-dev-setup)
   (sherlodoc :with-doc)
-  (ppx_expect_nobase
+  (ppx_expect
    (>= "0.17.2.2"))
   (alcotest :with-test)
   (qcheck-core :with-test)
   (qcheck-alcotest :with-test)
   (qcheck-stm :with-test))
  (tags (program-analysis)))
+
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
