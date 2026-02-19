@@ -147,17 +147,19 @@ module TnumWintValueAbstraction = struct
   include TnumWintReducedProductLattice
 
   let eval_const (op : Lang.Ops.AllOps.const) rt =
-    let tnum = KnownBitsValueAbstraction.eval_const op in
+    let tnum = KnownBitsValueAbstraction.eval_const op rt in
     let wint = WrappedIntervalsValueAbstraction.eval_const op rt in
     { tnum; wint }
 
   let eval_unop (op : Lang.Ops.AllOps.unary) (a, ta) rt =
-    let tnum = KnownBitsValueAbstraction.eval_unop op a.tnum in
+    let tnum = KnownBitsValueAbstraction.eval_unop op (a.tnum, ta) rt in
     let wint = WrappedIntervalsValueAbstraction.eval_unop op (a.wint, ta) rt in
     { tnum; wint }
 
   let eval_binop (op : Lang.Ops.AllOps.binary) (a, ta) (b, tb) rt =
-    let tnum = KnownBitsValueAbstraction.eval_binop op a.tnum b.tnum in
+    let tnum =
+      KnownBitsValueAbstraction.eval_binop op (a.tnum, ta) (b.tnum, tb) rt
+    in
     let wint =
       WrappedIntervalsValueAbstraction.eval_binop op (a.wint, ta) (b.wint, tb)
         rt
@@ -165,10 +167,10 @@ module TnumWintValueAbstraction = struct
     { tnum; wint }
 
   let eval_intrin (op : Lang.Ops.AllOps.intrin) (args : (t * Types.t) list) rt =
-    let tnum_args = List.map (fun (arg, _) -> arg.tnum) args in
+    let tnum_args = List.map (fun (arg, ty) -> (arg.tnum, ty)) args in
     let wint_args = List.map (fun (arg, ty) -> (arg.wint, ty)) args in
 
-    let tnum = KnownBitsValueAbstraction.eval_intrin op tnum_args in
+    let tnum = KnownBitsValueAbstraction.eval_intrin op tnum_args rt in
     let wint = WrappedIntervalsValueAbstraction.eval_intrin op wint_args rt in
     { tnum; wint }
 end

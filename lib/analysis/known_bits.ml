@@ -17,6 +17,7 @@ module KnownBitsLattice = struct
     TNum { value = v; mask = m }
 
   let known v = tnum v (zero ~size:(size v))
+  let unknown ~width = tnum (zero ~size:width) (ones ~size:width)
 
   let show = function
     | Top -> "⊤"
@@ -44,11 +45,9 @@ module KnownBitsLattice = struct
     else
       match (a, b) with
       | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
-          if
-            (is_zero @@ bitand am (bitnot bm))
-            && Bitvec.equal (bitand av (bitnot am)) (bitand bv (bitnot bm))
-          then true
-          else false
+          let shared_known = bitnot @@ bitor am bm in
+          (is_zero @@ bitand am (bitnot bm))
+          && Bitvec.equal (bitand av shared_known) (bitand bv shared_known)
       | Bot, _ | _, Top -> true
       | _, Bot | Top, _ -> false
 
@@ -210,23 +209,23 @@ end
 module KnownBitsValueAbstraction = struct
   include KnownBitsOps
 
-  let eval_const (op : Lang.Ops.AllOps.const) =
+  let eval_const (op : Lang.Ops.AllOps.const) _ =
     match op with
     | `Bitvector a -> known a
     | `Bool true -> known @@ ones ~size:1
     | `Bool false -> known @@ zero ~size:1
     | _ -> Top
 
-  let eval_unop (op : Lang.Ops.AllOps.unary) a =
+  let eval_unop (op : Lang.Ops.AllOps.unary) (a, _) rt =
     match op with
     | `BVNOT -> tnum_bitnot a
     | `ZeroExtend k -> tnum_zero_extend k a
     | `SignExtend k -> tnum_sign_extend k a
     | `Extract (hi, lo) -> tnum_extract (hi, lo) a
     | `BVNEG -> tnum_neg a
-    | _ -> Top
+    | _ -> ( match rt with Types.Bitvector width -> unknown ~width | _ -> Top)
 
-  let eval_binop (op : Lang.Ops.AllOps.binary) a b =
+  let eval_binop (op : Lang.Ops.AllOps.binary) (a, _) (b, _) rt =
     match op with
     | `BVADD -> tnum_add a b
     | `BVSUB -> tnum_sub a b
@@ -238,39 +237,28 @@ module KnownBitsValueAbstraction = struct
     | `BVLSHR -> tnum_lshr a b
     | `BVASHR -> tnum_ashr a b
     | `BVMUL -> tnum_mul a b
-    | _ -> Top
+    | _ -> ( match rt with Types.Bitvector width -> unknown ~width | _ -> Top)
 
-  let eval_intrin (op : Lang.Ops.AllOps.intrin) (args : t list) =
-    let fold f args =
-      List.map Option.some args
-      |> List.fold_left
-           (fun acc t ->
-             match acc with None -> t | Some a -> Option.map (f a) t)
-           None
-      |> function
-      | Some t -> t
-      | None -> Top
-    in
-    let f =
+  let eval_intrin (op : Lang.Ops.AllOps.intrin) (args : (t * Types.t) list) rt =
+    let op a b =
       match op with
-      | `BVADD -> eval_binop `BVADD
-      | `BVOR -> eval_binop `BVOR
-      | `BVXOR -> eval_binop `BVXOR
-      | `BVAND -> eval_binop `BVAND
-      | `BVConcat -> tnum_concat
-      | _ -> fun _ _ -> Top
+      | `BVADD -> (eval_binop `BVADD a b rt, rt)
+      | `BVOR -> (eval_binop `BVOR a b rt, rt)
+      | `BVXOR -> (eval_binop `BVXOR a b rt, rt)
+      | `BVAND -> (eval_binop `BVAND a b rt, rt)
+      | `BVConcat -> (tnum_concat (fst a) (fst b), rt)
+      | _ -> (
+          match rt with
+          | Types.Bitvector width -> (unknown ~width, rt)
+          | _ -> (Top, rt))
     in
-    fold f args
+    match args with
+    | h :: b :: tl -> fst @@ List.fold_left op (op h b) tl
+    | _ -> failwith "operators must have two operands"
 end
 
 module KnownValueAbstractionBasil = struct
-  include Intra_analysis.ValueAbstractionIgnoringTypes (struct
-    include KnownBitsValueAbstraction
-    module E = Lang.Expr.BasilExpr
-  end)
-
-  let top = KnownBitsLattice.Top
-
+  include KnownBitsValueAbstraction
   module E = Lang.Expr.BasilExpr
 end
 
