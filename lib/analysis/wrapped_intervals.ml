@@ -872,8 +872,7 @@ module Domain = struct
       | `SGE -> sineq `GE
       | `SGT -> sineq `GT
 
-    let reduce_bin dom op l r =
-      let read = flip read dom in
+    let reduce_bin ~read op l r =
       let abstract_eval expr =
         Eval.EV.eval read (Lang.Expr.BasilExpr.fix expr)
       in
@@ -897,7 +896,7 @@ module Domain = struct
           Iter.singleton (rv, reduce_bin_left (swap op) r l)
       | _ -> Iter.empty
 
-    let rec reduce_expr dom expr =
+    let rec reduce_expr ~read expr =
       let open Lang.Expr in
       let open WrappedIntervalsLattice in
       let into_varmap =
@@ -913,38 +912,40 @@ module Domain = struct
       match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix expr) with
       | BinaryExpr (op, l, r) ->
           from_op op
-          |> Option.map_or ~default:Iter.empty (fun op -> reduce_bin dom op l r)
+          |> Option.map_or ~default:Iter.empty (fun op ->
+              reduce_bin ~read op l r)
       | UnaryExpr (`BoolNOT, BinaryExpr (op, l, r)) ->
           from_op op
           |> Option.map_or ~default:Iter.empty (fun op ->
-              reduce_bin dom (invert op) (BasilExpr.unfix l) (BasilExpr.unfix r))
+              reduce_bin ~read (invert op) (BasilExpr.unfix l)
+                (BasilExpr.unfix r))
       | ApplyIntrin (`AND, args) ->
           List.map BasilExpr.fix args
           |> Iter.of_list
-          |> Iter.flat_map (reduce_expr dom)
+          |> Iter.flat_map (reduce_expr ~read)
           |> into_varmap |> VarMap.map glb |> VarMap.to_iter
       | ApplyIntrin (`OR, args) ->
           List.map BasilExpr.fix args
           |> Iter.of_list
-          |> Iter.flat_map (reduce_expr dom)
+          |> Iter.flat_map (reduce_expr ~read)
           |> into_varmap
           |> VarMap.mapi (fun v rs ->
-              let s = read v dom in
+              let s = read v in
               if List.length rs = List.length args then meet s (lub rs) else s)
           |> VarMap.to_iter
       | _ -> Iter.empty
   end
 
-  let transfer dom stmt =
+  let tf ~read stmt evald_stmt =
     let open Lang.Expr in
     let pred_updates =
       match stmt with
       | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body } ->
-          reduce_expr dom @@ Lang.Algsimp.normalise body
+          reduce_expr ~read @@ Lang.Algsimp.normalise body
       | _ -> Iter.empty
     in
     let updates =
-      match Eval.stmt_eval_fwd stmt dom with
+      match evald_stmt with
       | Lang.Stmt.Instr_Assign ls -> List.to_iter ls
       | Lang.Stmt.Instr_Assert _ | Lang.Stmt.Instr_Assume _ -> Iter.empty
       | Lang.Stmt.Instr_Load { lhs } -> Iter.singleton (lhs, top_val)
@@ -955,8 +956,12 @@ module Domain = struct
           StringMap.values lhs |> Iter.map (fun v -> (v, top_val))
       | Lang.Stmt.Instr_IndirectCall _ -> Iter.empty
     in
+    Iter.append updates pred_updates
+
+  let transfer dom stmt =
+    let evald_stmt = Eval.stmt_eval_fwd stmt dom in
     Iter.fold (fun a (k, v) -> update k v a) dom
-    @@ Iter.append updates pred_updates
+    @@ tf ~read:(flip read dom) stmt evald_stmt
 end
 
 module Analysis = Intra_analysis.Forwards (Domain)
