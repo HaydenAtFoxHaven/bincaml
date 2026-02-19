@@ -45,7 +45,7 @@ module KnownBitsLattice = struct
     else
       match (a, b) with
       | TNum { value = av; mask = am }, TNum { value = bv; mask = bm } ->
-          let shared_known = bitnot @@ bitor am bm in
+          let shared_known = bitor am (bitnot bm) in
           (is_zero @@ bitand am (bitnot bm))
           && Bitvec.equal (bitand av shared_known) (bitand bv shared_known)
       | Bot, _ | _, Top -> true
@@ -86,7 +86,7 @@ module KnownBitsOps = struct
 
   let tnum_sign_extend k =
     bind1 (fun (v, m) ->
-        tnum (sign_extend ~extension:k v) (zero_extend ~extension:k m))
+        tnum (sign_extend ~extension:k v) (sign_extend ~extension:k m))
 
   let tnum_extract (hi, lo) =
     bind1 (fun (v, m) -> tnum (extract ~hi ~lo v) (extract ~hi ~lo m))
@@ -161,7 +161,7 @@ module KnownBitsOps = struct
    Unlike Listing 4, the OCaml implementation avoids the direct multiplication 
    optimization (ACCv := P.v * Q.v) and instead builds the certain-bit product 
    incrementally through recursive additions. *)
-  let tnum_mul =
+  (* let tnum_mul =
     bind2 (fun (av, am) (bv, bm) ->
         let t_zero = known (of_int ~size:(size av) 0) in
         let one = of_int ~size:(size av) 1 in
@@ -173,30 +173,47 @@ module KnownBitsOps = struct
           if is_zero @@ bitor av am then tnum_add accv accm
           else
             let a_lsb = bitand av one in
+            (* 0,1,ʯ*)
             let a_mask_lsb = bitand am one in
             let b_tnum = tnum bv bm in
             let recurse accv accm =
-              let a_next =
-                bind1
-                  (fun (v, m) -> tnum (lshr v one) (lshr m one))
-                  (tnum av am)
-              in
-              let b_next =
-                bind1 (fun (v, m) -> tnum (shl v one) (shl m one)) b_tnum
-              in
+              let a_next = tnum_lshr (tnum av am) (known one) in
+              let b_next = tnum_shl b_tnum (known one) in
               bind2 (tnum_mul_aux accv accm) a_next b_next
             in
 
             if is_nonzero a_lsb then
-              let accv' = tnum_add accv (known bv) in
-              recurse accv' accm
-            else if is_nonzero a_mask_lsb then
               let accm' = tnum_add accm (tnum (of_int ~size:(size bm) 0) bm) in
+              recurse accv accm'
+            else if is_nonzero a_mask_lsb then
+              let accm' = tnum (of_int ~size:(size bm) 0) (bitor bv bm) in
               recurse accv accm'
             else recurse accv accm
         in
+        let accv = known (mul av bv) in
+        let accm = t_zero in
+        tnum_mul_aux accv accm (av, am) (bv, bm)) *)
 
-        tnum_mul_aux t_zero t_zero (av, am) (bv, bm))
+  let tnum_mul =
+    bind2 (fun (av, am) (bv, bm) ->
+        let t_zero = known (of_int ~size:(size av) 0) in
+        let one = of_int ~size:(size av) 1 in
+        let rec tnum_mul_aux acc a b =
+          let av, am = a in
+          let bv, bm = b in
+
+          if is_zero @@ bitor av am then acc
+          else
+            let acc' =
+              if is_nonzero (bitand av one) then tnum_add acc (tnum bv bm)
+              else if is_nonzero (bitand am one) then join acc (tnum_add acc (tnum bv bm))
+              else acc
+            in
+            let a_next = tnum_lshr (tnum av am) (known one) in
+            let b_next = tnum_shl (tnum bv bm) (known one) in
+            bind2 (tnum_mul_aux acc') a_next b_next
+        in
+        tnum_mul_aux t_zero (av, am) (bv, bm))
 
   let tnum_concat a b =
     match (a, b) with
