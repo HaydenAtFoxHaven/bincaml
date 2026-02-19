@@ -20,7 +20,7 @@ module TnumWintReducedProductLattice = struct
   let name = "tnumWintReduceProduct"
 
   type t = { tnum : KnownBitsLattice.t; wint : WrappedIntervalsLattice.t }
-  [@@deriving eq]
+  [@@deriving ord, eq]
 
   let bottom = { tnum = KBL.bottom; wint = WIL.bottom }
   let top = { tnum = KBL.top; wint = WIL.top }
@@ -43,7 +43,7 @@ module TnumWintReducedProductLattice = struct
     | Interval { lower; upper } ->
         let w = size lower in
 
-        if WrappedIntervalsLattice.compare (sp ~width:w) wint <= 0 then
+        if WrappedIntervalsLattice.leq (sp ~width:w) wint then
           TNum { value = zero ~size:w; mask = ones ~size:w }
         else
           let diff = bitxor lower upper in
@@ -54,16 +54,9 @@ module TnumWintReducedProductLattice = struct
             let value = bitand lower @@ bitnot mask in
             tnum value mask
 
-  let compare s t =
-    if
-      KnownBitsLattice.equal s.tnum t.tnum
-      && WrappedIntervalsLattice.equal s.wint t.wint
-    then 0
-    else if
-      KnownBitsLattice.compare s.tnum t.tnum <= 0
-      && WrappedIntervalsLattice.compare s.wint t.wint <= 0
-    then -1
-    else 1
+  let leq s t =
+    KnownBitsLattice.leq s.tnum t.tnum
+    && WrappedIntervalsLattice.leq s.wint t.wint
 
   let reduce_wint wint tnum =
     let mssb x =
@@ -188,6 +181,11 @@ end
 module StateAbstraction =
   Intra_analysis.MapState (TnumWintReducedProductValueAbstractionBasil)
 
+module Eval =
+  Intra_analysis.EvalStmt
+    (TnumWintReducedProductValueAbstractionBasil)
+    (StateAbstraction)
+
 module Domain = struct
   include StateAbstraction
 
@@ -200,10 +198,22 @@ module Domain = struct
     |> Iter.fold (fun m (v, d) -> update v d m) bottom
 
   let transfer dom stmt =
-    let read_tnum v = (read v dom).tnum in
+    let evald_stmt = Eval.stmt_eval_fwd stmt dom in
+    let evald_stmt_wint =
+      Lang.Stmt.map ~f_lvar:id ~f_rvar:id
+        ~f_expr:(fun (e : TnumWintReducedProductLattice.t) -> e.wint)
+        evald_stmt
+    in
+    let evald_stmt_tnum =
+      Lang.Stmt.map ~f_lvar:id ~f_rvar:id
+        ~f_expr:(fun (e : TnumWintReducedProductLattice.t) -> e.tnum)
+        evald_stmt
+    in
     let read_wint v = (read v dom).wint in
-    let tnum' = Known_bits.Domain.tf ~read:read_tnum stmt in
-    let wint' = Wrapped_intervals.Domain.tf ~read:read_wint stmt in
+    let tnum' = Known_bits.Domain.tf evald_stmt_tnum in
+    let wint' =
+      Wrapped_intervals.Domain.tf ~read:read_wint stmt evald_stmt_wint
+    in
     let updated_tnum =
       Iter.fold
         (fun acc (k, v) -> update k { tnum = v; wint = (read k dom).wint } acc)
@@ -214,3 +224,9 @@ module Domain = struct
         update k { tnum = (read k updated_tnum).tnum; wint = v } acc)
       updated_tnum wint'
 end
+
+module Analysis = Intra_analysis.Forwards (Domain)
+
+let analyse (p : Lang.Program.proc) =
+  Analysis.analyse ~widening_set:Graph.ChaoticIteration.FromWto
+    ~widening_delay:50 p

@@ -276,4 +276,42 @@ end
 
 module StateAbstraction = Intra_analysis.MapState (KnownValueAbstractionBasil)
 
-include Dataflow_graph.EasyForwardAnalysisPack (KnownValueAbstractionBasil)
+module Eval =
+  Intra_analysis.EvalStmt (KnownValueAbstractionBasil) (StateAbstraction)
+
+module Domain = struct
+  let top_val = KnownBitsLattice.top
+
+  include StateAbstraction
+
+  let init p =
+    let vs = Lang.Procedure.formal_in_params p |> StringMap.values in
+    vs
+    |> Iter.map (fun v -> (v, top_val))
+    |> Iter.fold (fun m (v, d) -> update v d m) bottom
+
+  let tf evald_stmt =
+    match evald_stmt with
+    | Lang.Stmt.Instr_Assign ls -> List.to_iter ls
+    | Lang.Stmt.Instr_Assert _ -> Iter.empty
+    | Lang.Stmt.Instr_Assume _ -> Iter.empty
+    | Lang.Stmt.Instr_Load { lhs } -> Iter.singleton (lhs, top_val)
+    | Lang.Stmt.Instr_Store { lhs } -> Iter.singleton (lhs, top_val)
+    | Lang.Stmt.Instr_IntrinCall { lhs } ->
+        StringMap.values lhs |> Iter.map (fun v -> (v, top_val))
+    | Lang.Stmt.Instr_Call { lhs } ->
+        StringMap.values lhs |> Iter.map (fun v -> (v, top_val))
+    | Lang.Stmt.Instr_IndirectCall _ -> Iter.empty
+
+  let transfer dom stmt =
+    let updates = tf @@ Eval.stmt_eval_fwd stmt dom in
+    Iter.fold (fun a (k, v) -> update k v a) dom updates
+end
+
+module Analysis = Dataflow_graph.AnalysisFwd (Domain)
+
+let analyse (p : Lang.Program.proc) =
+  let g = Dataflow_graph.create p in
+  Analysis.analyse
+    ~widen_set:(Graph.ChaoticIteration.Predicate (fun _ -> false))
+    ~delay_widen:0 g
