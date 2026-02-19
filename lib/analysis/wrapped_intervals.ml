@@ -911,14 +911,13 @@ module Domain = struct
       let meet s t = lub @@ intersect s t in
       let glb ints = List.map complement ints |> lub |> complement in
       match AbstractExpr.map BasilExpr.unfix (BasilExpr.unfix expr) with
-      | BinaryExpr (`IMPLIES, l, r) ->
-          let r = BasilExpr.fix r in
-          let not_l = BasilExpr.fix @@ UnaryExpr (`BoolNOT, BasilExpr.fix l) in
-          let implies = BasilExpr.fix @@ ApplyIntrin (`OR, [ r; not_l ]) in
-          reduce_expr dom implies
       | BinaryExpr (op, l, r) ->
           from_op op
           |> Option.map_or ~default:Iter.empty (fun op -> reduce_bin dom op l r)
+      | UnaryExpr (`BoolNOT, BinaryExpr (op, l, r)) ->
+          from_op op
+          |> Option.map_or ~default:Iter.empty (fun op ->
+              reduce_bin dom (invert op) (BasilExpr.unfix l) (BasilExpr.unfix r))
       | ApplyIntrin (`AND, args) ->
           List.map BasilExpr.fix args
           |> Iter.of_list
@@ -933,30 +932,6 @@ module Domain = struct
               let s = read v dom in
               if List.length rs = List.length args then meet s (lub rs) else s)
           |> VarMap.to_iter
-      | UnaryExpr (`BoolNOT, BinaryExpr (`IMPLIES, l, r)) ->
-          let not_r = BasilExpr.fix @@ UnaryExpr (`BoolNOT, r) in
-          let not_implies = BasilExpr.fix @@ ApplyIntrin (`AND, [ l; not_r ]) in
-          reduce_expr dom not_implies
-      | UnaryExpr (`BoolNOT, BinaryExpr (op, l, r)) ->
-          from_op op
-          |> Option.map_or ~default:Iter.empty (fun op ->
-              reduce_bin dom (invert op) (BasilExpr.unfix l) (BasilExpr.unfix r))
-      | UnaryExpr (`BoolNOT, ApplyIntrin (`AND, args)) ->
-          let args' =
-            List.map
-              (fun e -> BasilExpr.fix @@ AbstractExpr.UnaryExpr (`BoolNOT, e))
-              args
-          in
-          let expr = BasilExpr.fix @@ ApplyIntrin (`OR, args') in
-          reduce_expr dom expr
-      | UnaryExpr (`BoolNOT, ApplyIntrin (`OR, args)) ->
-          let args' =
-            List.map
-              (fun e -> BasilExpr.fix @@ AbstractExpr.UnaryExpr (`BoolNOT, e))
-              args
-          in
-          let expr = BasilExpr.fix @@ ApplyIntrin (`AND, args') in
-          reduce_expr dom expr
       | _ -> Iter.empty
   end
 
