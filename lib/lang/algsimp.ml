@@ -1,7 +1,6 @@
 (** Basic intra-expression algebraic simplifications *)
 
 open Bincaml_util.Common
-open Lang
 open Expr
 open Ops
 
@@ -56,7 +55,7 @@ let algebraic_simplifications
 
 let alg_simp_rewriter e =
   let partial_eval_expr e =
-    BasilExpr.rewrite ~rw_fun:Lang.Expr_eval.partial_eval_alg e
+    BasilExpr.rewrite ~rw_fun:Expr_eval.partial_eval_alg e
   in
   BasilExpr.rewrite_typed_two algebraic_simplifications (partial_eval_expr e)
 

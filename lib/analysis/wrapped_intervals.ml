@@ -940,7 +940,7 @@ module Domain = struct
     let pred_updates =
       match stmt with
       | Lang.Stmt.Instr_Assert { body } | Lang.Stmt.Instr_Assume { body } ->
-          reduce_expr dom body
+          reduce_expr dom @@ Lang.Algsimp.normalise body
       | _ -> Iter.empty
     in
     let updates =
