@@ -221,10 +221,21 @@ module Domain = struct
         (fun acc (k, v) -> update k { tnum = v; wint = (read k dom).wint } acc)
         dom tnum'
     in
-    Iter.fold
-      (fun acc (k, v) ->
-        update k { tnum = (read k updated_tnum).tnum; wint = v } acc)
-      updated_tnum wint'
+    let dom =
+      Iter.fold
+        (fun acc (k, v) ->
+          update k { tnum = (read k updated_tnum).tnum; wint = v } acc)
+        updated_tnum wint'
+    in
+    match stmt with
+    | Lang.Stmt.Instr_Assert _ | Lang.Stmt.Instr_Assume _ ->
+        Iter.append (Iter.map fst tnum') (Iter.map fst wint')
+        |> Iter.uniq ~eq:Var.equal
+        |> Iter.fold
+             (fun acc k ->
+               update k (TnumWintReducedProductLattice.reduce @@ read k acc) acc)
+             dom
+    | _ -> dom
 end
 
 module Analysis = Intra_analysis.Forwards (Domain)

@@ -161,39 +161,6 @@ module KnownBitsOps = struct
    Unlike Listing 4, the OCaml implementation avoids the direct multiplication 
    optimization (ACCv := P.v * Q.v) and instead builds the certain-bit product 
    incrementally through recursive additions. *)
-  (* let tnum_mul =
-    bind2 (fun (av, am) (bv, bm) ->
-        let t_zero = known (of_int ~size:(size av) 0) in
-        let one = of_int ~size:(size av) 1 in
-
-        let rec tnum_mul_aux accv accm a b =
-          let av, am = a in
-          let bv, bm = b in
-
-          if is_zero @@ bitor av am then tnum_add accv accm
-          else
-            let a_lsb = bitand av one in
-            (* 0,1,ʯ*)
-            let a_mask_lsb = bitand am one in
-            let b_tnum = tnum bv bm in
-            let recurse accv accm =
-              let a_next = tnum_lshr (tnum av am) (known one) in
-              let b_next = tnum_shl b_tnum (known one) in
-              bind2 (tnum_mul_aux accv accm) a_next b_next
-            in
-
-            if is_nonzero a_lsb then
-              let accm' = tnum_add accm (tnum (of_int ~size:(size bm) 0) bm) in
-              recurse accv accm'
-            else if is_nonzero a_mask_lsb then
-              let accm' = tnum (of_int ~size:(size bm) 0) (bitor bv bm) in
-              recurse accv accm'
-            else recurse accv accm
-        in
-        let accv = known (mul av bv) in
-        let accm = t_zero in
-        tnum_mul_aux accv accm (av, am) (bv, bm)) *)
-
   let tnum_mul =
     bind2 (fun (av, am) (bv, bm) ->
         let t_zero = known (of_int ~size:(size av) 0) in
