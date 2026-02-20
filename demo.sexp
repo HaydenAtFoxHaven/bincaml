@@ -1,2 +1,4 @@
-(load-il "examples/irreducible_loop_1.il")
-(run-transform "demo-cfg-reduced-product-analysis")
+(load-il "examples/cntlm-simp-output.il")
+(run-transforms "remove-unreachable-block" "cf-expressions" "intra-dead-store-elim")
+; (run-transforms "ssa")
+(run-transform "demo-cfg-tnum-wint-reduced-analysis")
